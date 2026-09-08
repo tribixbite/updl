@@ -1,95 +1,149 @@
-# UniFi Protect Video Downloader
+# updl
 
-**Tool to download footage from a local UniFi Protect system**
+**Resumable, verifiable archiver for UniFi Protect footage.**
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/danielfernau/unifi-protect-video-downloader?style=flat-square&label=stable%20release)
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/danielfernau/unifi-protect-video-downloader?include_prereleases&sort=semver&style=flat-square&label=latest%20release)
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/danielfernau/unifi-protect-video-downloader/Python%20package/master?style=flat-square)
-![GitHub repo size](https://img.shields.io/github/repo-size/danielfernau/unifi-protect-video-downloader?style=flat-square)
-![GitHub stars](https://img.shields.io/github/stars/danielfernau/unifi-protect-video-downloader?style=flat-square)
-[![GitHub issues](https://img.shields.io/github/issues/danielfernau/unifi-protect-video-downloader?style=flat-square)](https://github.com/danielfernau/unifi-protect-video-downloader/issues)
-![Docker image size](https://img.shields.io/docker/image-size/unifitoolbox/protect-archiver/latest?style=flat-square)
-![Docker pulls](https://img.shields.io/docker/pulls/unifitoolbox/protect-archiver?style=flat-square)
-![License](https://img.shields.io/github/license/danielfernau/unifi-protect-video-downloader?style=flat-square)
-![Codecov](https://img.shields.io/codecov/c/github/danielfernau/unifi-protect-video-downloader?style=flat-square&token=QV50XU5J0O)
+Back up a UniFi Protect system to local storage in a way you can re-run at any time: it
+downloads only what is genuinely missing, remembers the hours the NVR had no footage for,
+retries the ones that failed, and can prove that what is already on disk is still intact.
 
-
-## :package: Releases
-
-Releases: https://github.com/danielfernau/unifi-protect-video-downloader/releases  
-Docker images: https://hub.docker.com/r/unifitoolbox/protect-archiver  
-
-:file_folder: Version 1.x code: https://github.com/danielfernau/unifi-protect-video-downloader/tree/2165204442d30676f3f48ad445c0211c6e5c00c1
-
-
-<!--
-## :vertical_traffic_light: Compatibility
-
-| UniFi Cloud Key | :white_check_mark: mostly stable |
-| :---: | :---: |
-| Firmware | >= 1.1.6 |
-| Protect | >= 1.11.3 |
-
-
-| UniFi Dream Machine Pro | :warning: experimental/beta |
-| :---: | :---: |
-| Firmware | >= v1.7.0 |
-| Protect | >= v1.14.10 |
--->
-
-
-## :arrow_right: Getting started
-
-### For Protect servers with UniFi OS
-
-```shell
-docker run --volume /path/on/host/machine:/downloads unifitoolbox/protect-archiver --help
+```console
+$ updl sync D:\Unifi
+Archive currently holds 367 segment(s) (122 empty, 245 ok)
+0 files downloaded (0.0 b), 367 already archived, 0 files skipped, 0 files failed
 ```
 
-(replace `/path/on/host/machine` with an absolute path to your download directory and
-`--help` with one of the supported commands and its parameters as documented here:
-[wiki/Usage-(v2.x)](https://github.com/danielfernau/unifi-protect-video-downloader/wiki/Usage-(v2.x)))
+That run took **0.35 seconds and made no requests to the NVR at all**, because everything
+was already held. The first run of the same command downloaded 58.5 GB.
 
-Example:
-```shell
-docker run --volume /path/on/host/machine:/downloads unifitoolbox/protect-archiver download [OPTIONS] /downloads
+> Not affiliated with, endorsed by, or supported by Ubiquiti Inc. "UniFi" and "Protect"
+> are trademarks of Ubiquiti Inc., used here only to describe what this tool talks to.
+
+## Install
+
+```console
+pip install updl
 ```
 
+Python 3.10+. `ffprobe` (from FFmpeg) is optional and only needed for `--verify=deep` and
+`--require-audio`.
 
-### For Protect systems with older firmware
+## Quick start
 
-To use the tool with older systems, just add the `--not-unifi-os` flag to your options list.
+```console
+# The destination must already exist.
+mkdir /srv/protect
 
-Example:
-```shell
-docker run --volume /path/on/host/machine:/downloads unifitoolbox/protect-archiver download --not-unifi-os [OPTIONS] /downloads
+export PROTECT_ADDRESS=protect.invalid
+export PROTECT_USERNAME=archiver
+export PROTECT_PASSWORD=...
+
+updl sync /srv/protect
 ```
 
+Every option has a `PROTECT_*` environment variable. Use those rather than command-line
+flags for credentials — an argument is visible to every other process on the machine.
 
-## :thought_balloon: Questions, ideas, support and more...
+## Commands
 
-For everything that isn't a bug, issue or error, feel free to use the project's Discussions tab:  
-https://github.com/danielfernau/unifi-protect-video-downloader/discussions
+| Command | What it does |
+| --- | --- |
+| `updl sync DEST` | Incremental mirror. Sweeps each camera's retention window and fetches only what is missing or damaged. |
+| `updl verify DEST` | Audits an archive **offline** — never contacts the NVR, so it is safe to run against a backup copy. |
+| `updl download DEST` | One-off download of an explicit `--start`/`--end` range. |
+| `updl events DEST` | Motion and smart-detection event clips only. |
 
+## How re-running avoids re-downloading
 
-## :hammer_and_wrench: Development and Build Instructions
+A SQLite manifest at `DEST/.protect-archive/manifest.db` holds one row per hour per
+camera, keyed on `(camera_id, start_ms)`, recording the path, size, SHA-256 and a status:
 
-If you want to make changes, build you own version, test things or contribute to the project, you can find all the relevant Development and Build Instructions in the [BUILD.md](https://github.com/danielfernau/unifi-protect-video-downloader/blob/master/BUILD.md) file. Pull requests are welcome!
+- **`ok`** — downloaded and accounted for.
+- **`empty`** — the NVR reported no footage for that hour, so it is never requested again
+  and the gap stays visible as a deliberate record rather than as an error.
+- **`failed`** — the download failed; a later run retries exactly that hour.
 
+Because the manifest is authoritative, `sync` sweeps the whole retention window every run
+and still costs nothing when there is nothing to do. Gaps left by earlier failures are
+filled automatically, and footage that has since aged off the NVR stays in the archive.
 
-## :link: Links
+## Verifying what is on disk
 
-**Community post:**  
-https://community.ui.com/questions/Tool-for-downloading-footage-from-UniFi-Protect/47057c1d-112b-4092-b488-a380286933df
+`--verify` controls how hard `sync` works to prove an existing file is intact before
+skipping it. `updl verify` accepts the same levels for an offline audit.
 
-**Reddit post:**  
-https://www.reddit.com/r/Ubiquiti/comments/dhaxcq/tool_for_downloading_footage_from_unifi_protect/
+| Level | Checks | Cost |
+| --- | --- | --- |
+| `none` | trusts the manifest | touches no files |
+| `quick` *(default)* | file exists at the recorded size | one `stat` per segment |
+| `hash` | SHA-256 recomputed | reads the whole archive |
+| `deep` | + `ffprobe` decodes it | catches a file that is the right size and hash but unplayable |
 
+```console
+# Audit, then queue anything damaged for the next sync to re-fetch.
+updl verify /srv/protect --level hash --repair
+```
 
+Other `verify` flags: `--require-audio` (see below), `--rehash` to fill in hashes for rows
+adopted from disk, `--fix-timestamps`, and `--clean-partials`.
 
-## :warning: Important Information
-This tool is neither supported nor endorsed by, and is in no way affiliated with Ubiquiti Inc.  
-It is not guaranteed that it will always run flawlessly, so use this tool at your own risk.  
-The software is provided without any warranty or liability, as stated in the [license](LICENSE).  
+## Things this handles that are easy to get wrong
 
+**Audio is silently dropped for under-permissioned accounts.** If the Protect account
+lacks `readmedia` on a camera, the export still returns 200 with intact video — just no
+audio track. Nothing fails, so an archive can accumulate for weeks before anyone plays a
+clip and finds it silent. `updl verify DEST --require-audio` inspects the streams and
+reports it; add `--repair` to re-fetch. If it flags everything, grant the account camera
+media permission and run it again.
 
+**"No footage" is reported as an HTTP 404 carrying `{"error": 502}`.** Neither number
+means what it looks like. Treated as a failure, every hour a camera was offline would be
+re-requested forever; `updl` records it as `empty` instead.
+
+**Downloads are atomic.** Bytes land in a `.part` file and are renamed into place only on
+success, so an interrupted run cannot leave a truncated MP4 that later runs mistake for a
+complete one. Stale partials are swept at startup.
+
+**Transient server errors are retried.** The export endpoint routinely returns 500 on a
+busy NVR. `updl` backs off exponentially on 5xx/429/408, does not retry other 4xx, and
+refreshes an expired session on 401 without spending a retry.
+
+**Files are dated by recording time, not download time.** Protect stamps each exported MP4
+at the moment of export, so an archive fetched today would otherwise show today's date for
+last week's footage.
+
+## Accounts and multi-factor authentication
+
+The account must be able to read camera media. A Protect account lacking `readmedia` on a
+camera gets video without audio rather than an error — see above.
+
+For consoles backed by Ubiquiti SSO with a second factor, `updl` handles the two-step
+login and **caches the session token** (`--no-session-store` disables this), so a code is
+needed occasionally rather than on every run. Supply one non-interactively with
+`--mfa-code` / `PROTECT_MFA_CODE`; otherwise it prompts. With no terminal attached it
+fails with an explanation rather than hanging, which is what a scheduled run needs.
+
+Where the second factor is delivered by email there is no shared secret, so no run can
+obtain a *new* token unattended — but an existing token is long-lived, so a scheduled run
+works until it expires.
+
+## Recovering an archive whose manifest was lost
+
+`updl sync DEST --reconcile` reads the footage already on disk and rebuilds the manifest
+rows from the filenames, rather than downloading terabytes again. Adopted rows carry no
+hash until `updl verify DEST --rehash` records one.
+
+## Credits
+
+A fork of [`danielfernau/unifi-protect-video-downloader`](https://github.com/danielfernau/unifi-protect-video-downloader)
+by Daniel Fernau, David Cramer and contributors, which does the hard work of talking to
+the Protect API. See [NOTICE](NOTICE) for what this fork changed and why. MIT licensed;
+the original copyright notice is retained in [LICENSE](LICENSE).
+
+## Contributing
+
+```console
+poetry install
+poetry run pytest
+poetry run mypy .
+poetry run flake8 protect_archiver conftest.py
+```

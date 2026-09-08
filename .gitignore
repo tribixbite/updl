@@ -177,3 +177,13 @@ fabric.properties
 
 # mac os
 .DS_Store
+
+# MCP browser scratch output
+.playwright-mcp/
+
+# Stale test artefact inherited from upstream
+testresults.xml
+
+# Screenshots captured while investigating the Protect UI (may show live footage)
+*.png
+!docs/**/*.png

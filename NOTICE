@@ -1,0 +1,35 @@
+updl
+====
+
+Copyright (c) 2026 Will Stone and contributors.
+
+This product is a derivative work of:
+
+    unifi-protect-video-downloader
+    https://github.com/danielfernau/unifi-protect-video-downloader
+    Copyright (c) 2020 Daniel Fernau, David Cramer and individual contributors.
+    Licensed under the MIT License.
+
+The original project's MIT License is reproduced in full in the LICENSE file and
+continues to govern the portions of this work derived from it. The upstream commit
+history is preserved in this repository, so authorship of the original code remains
+attributable commit by commit.
+
+The Protect API client, CLI structure, interval arithmetic and download machinery
+originate with the upstream project. This fork exists to make the archive re-runnable and
+verifiable, and adds:
+
+  * a SQLite manifest recording every archived hour, so a later run downloads only what is
+    genuinely missing rather than resuming from a single cursor per camera;
+  * distinct handling of hours the NVR reports as having no footage, so real recording
+    gaps settle once instead of being retried forever;
+  * integrity verification at four levels, from a size check to an ffprobe decode, with an
+    offline audit command;
+  * detection of exports that arrived without an audio track, which UniFi Protect returns
+    silently to an under-permissioned account;
+  * atomic downloads, exponential backoff on transient server errors, and session-token
+    caching for accounts behind Ubiquiti SSO multi-factor authentication.
+
+Not affiliated with, endorsed by, or supported by Ubiquiti Inc. "UniFi", "Protect" and
+"Ubiquiti" are trademarks of Ubiquiti Inc., used here solely to describe the system this
+software interoperates with.

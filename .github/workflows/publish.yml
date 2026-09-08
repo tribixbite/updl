@@ -1,0 +1,106 @@
+name: Publish to PyPI
+
+# Publishes on a GitHub Release, and can be dry-run by hand against TestPyPI.
+#
+# Authentication is by PyPI Trusted Publishing (OIDC), so there is no API token stored in
+# the repository at all. Before the first real run, register this workflow as a trusted
+# publisher for the project at https://pypi.org/manage/account/publishing/ using:
+#   owner        tribixbite
+#   repository   updl
+#   workflow     publish.yml
+#   environment  pypi
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to publish"
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry==2.3.3
+
+      # A release built from a tag that disagrees with pyproject.toml produces a
+      # confusingly numbered artefact, so refuse rather than publish it.
+      - name: Check the tag matches the project version
+        if: github.event_name == 'release'
+        run: |
+          project_version="$(poetry version --short)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "pyproject: $project_version / tag: $tag_version"
+          if [ "$project_version" != "$tag_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject version $project_version"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Test
+        run: poetry run python -m pytest -q
+
+      - name: Type check
+        run: poetry run python -m mypy .
+
+      - name: Lint
+        run: poetry run python -m flake8 protect_archiver conftest.py
+
+      - name: Build
+        run: poetry build
+
+      # Catches a malformed README before PyPI rejects the upload.
+      - name: Check metadata renders
+        run: |
+          pipx install twine
+          twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ (github.event_name == 'release' || inputs.target == 'pypi') && 'pypi' || 'testpypi' }}
+    permissions:
+      # Required for Trusted Publishing; nothing else in this job needs write access.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: github.event_name == 'release' || inputs.target == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1

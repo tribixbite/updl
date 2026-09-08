@@ -1,32 +1,48 @@
 [tool.poetry]
-name = "protect-archiver"
-version = "2.3.4"
-description = "UniFi Protect Video Downloader"
-authors = ["Daniel Fernau", "David Cramer"]
+name = "updl"
+version = "3.0.0"
+description = "Resumable, verifiable archiver for UniFi Protect footage"
+authors = ["Will Stone <willstone@gmail.com>"]
+maintainers = ["Will Stone <willstone@gmail.com>"]
 license = "MIT"
 
 readme = "README.md"
 
+# The distribution is 'updl'; the import package keeps its original name so that fixes
+# from the upstream project this forks can still be merged rather than hand-ported.
 packages = [
     { include = "protect_archiver"}
 ]
 
-homepage = "https://github.com/danielfernau/unifi-protect-video-downloader"
-repository = "https://github.com/danielfernau/unifi-protect-video-downloader"
+homepage = "https://github.com/tribixbite/updl"
+repository = "https://github.com/tribixbite/updl"
+documentation = "https://github.com/tribixbite/updl#readme"
+
+keywords = ["unifi", "protect", "nvr", "video", "archive", "backup", "ubiquiti"]
 
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: System :: Archiving :: Backup",
     "Typing :: Typed",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/tribixbite/updl/issues"
+"Upstream project" = "https://github.com/danielfernau/unifi-protect-video-downloader"
 
 
 [tool.poetry.dependencies]
 python = "^3.10"
-pip = "*"
 python-dateutil = "^2.9.0"
 requests = {extras = ["security"], version = "^2.33.0"}
 click = "^8.1.8"
@@ -49,6 +65,9 @@ pytest-xdist = "*"
 
 
 [tool.poetry.scripts]
+updl = 'protect_archiver.cli:main'
+# Kept so existing scripts and scheduled tasks written against the upstream name keep
+# working after an upgrade.
 protect-archiver = 'protect_archiver.cli:main'
 
 
@@ -69,7 +88,6 @@ src_paths = ["protect_archiver", "tests"]
 
 [tool.black]
 line-length = 100
-experimental_string_processing = true
 force-exclude = '''
 .*/setup\.py$
 '''
@@ -80,7 +98,6 @@ check_untyped_defs = true
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_configs = true
-warn_unused_ignores = true
 files = "protect_archiver"
 
 

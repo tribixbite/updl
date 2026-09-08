@@ -20,7 +20,7 @@ COPY --from=build /build/dist/*.whl /install/
 
 RUN pip install *.whl
 
-ENTRYPOINT [ "protect-archiver" ]
+ENTRYPOINT [ "updl" ]
 CMD [ "--help" ]
 
 VOLUME [ "/downloads" ]

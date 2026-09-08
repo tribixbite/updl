@@ -1,4 +1,4 @@
-# unifi-protect-video-downloader — working context
+# updl — working context
 
 ## The task
 
@@ -235,12 +235,34 @@ Each of these was load-bearing for a re-runnable backup:
 - Tests must never touch the real session store; `conftest.py` has an autouse fixture
   pointing `PROTECT_SESSION_STORE` at a tmp path. Keep it.
 
+## Packaging
+
+Published to PyPI as **`updl`**; the CLI command is `updl`, with `protect-archiver` kept as
+an alias so existing scheduled tasks keep working. **The import package stays
+`protect_archiver`** (the `pillow`/`PIL` pattern) specifically so fixes can still be merged
+from upstream rather than hand-ported — do not rename it without accepting that cost.
+
+Release: bump `version` in `pyproject.toml`, tag `vX.Y.Z`, publish a GitHub Release.
+`.github/workflows/publish.yml` runs the tests, refuses a tag that disagrees with the
+project version, and uploads via **PyPI Trusted Publishing (OIDC)** — there is no API token
+in the repo. `workflow_dispatch` publishes to TestPyPI for a dry run. The trusted publisher
+must be registered once at pypi.org before the first real release.
+
+Two things were retargeted away from upstream and must stay that way: the Docker Hub
+namespace (`dockerbuild.yml` pushed to `unifitoolbox/protect-archiver` on every `v*` tag
+and was **deleted**; the `Makefile` now targets `tribixbite/updl` and no longer pushes as
+part of `all`).
+
+`.gitignore` excludes `*.png` because investigating the Protect UI leaves screenshots of
+live camera footage in the working tree.
+
 ## Repo etiquette
 
-This is a fork of `danielfernau/unifi-protect-video-downloader` tracking an active
-upstream, so new logic lives in **new modules** (`manifest.py`, `verify.py`,
-`reconcile.py`, `session_store.py`, `cli/verify.py`) and edits to upstream files are kept
-to small, obvious hunks that survive a merge. Prefer that shape for anything added later.
+A fork of `danielfernau/unifi-protect-video-downloader` with upstream history preserved, so
+new logic lives in **new modules** (`manifest.py`, `verify.py`, `reconcile.py`,
+`session_store.py`, `cli/verify.py`) and edits to upstream files are kept to small, obvious
+hunks that survive a merge. Prefer that shape for anything added later. MIT licence and the
+original copyright notice are retained; `NOTICE` records what this fork changed.
 
 Checks before committing:
 
