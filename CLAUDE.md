@@ -75,19 +75,53 @@ Measured on the first real run, 2026-09-07. **Segment size varies by two orders 
 magnitude depending on the camera's recording mode**, so do not estimate the archive from
 a segment count alone.
 
-| Camera | ID | Mode | Per hour |
+**All four cameras are in `detections` recording mode**, not continuous — so quiet hours
+genuinely contain nothing, which is why ~20 % of hours settle as `empty`.
+
+| Camera | ID | Per hour | NVR holds |
 | --- | --- | --- | --- |
-| G4 Instant | `cam00000000000000000001` | continuous | ~424 MB |
-| G4 Instant | `cam00000000000000000003` | continuous | ~424 MB |
-| G4 Doorbell Pro | `cam00000000000000000002` | detection only | ~6 MB |
-| G4 Instant | `cam00000000000000000004` | no recordings | — skipped |
+| G4 Instant | `cam00000000000000000001` | ~424 MB | 44.02 GB |
+| G4 Instant | `cam00000000000000000003` | ~200 MB | 21.47 GB |
+| G4 Doorbell Pro | `cam00000000000000000002` | ~6 MB | 1.07 GB |
+| G4 Instant | `cam00000000000000000004` | — | disconnected since 2026-05-02 |
 
 The two "G4 Instant" cameras share a display name; the filesystem-safe name disambiguates
 them with the last four characters of the camera id (`G4 Instant (e745)` vs
 `G4 Instant (3fef)`), so they do not collide on disk.
 
-NVR retention at first run was 4–6 days, ~363 hourly segments, roughly 90 GB. Throughput
-over the LAN was ~18 MB/s, so a full backfill takes on the order of an hour or two.
+Throughput over the LAN was ~18 MB/s, so a full backfill takes an hour or two.
+
+## The NVR stores three streams; this tool archives one
+
+Do not compare the archive's size against the console's reported disk usage — they measure
+different things. From `nvr.storageStats.recordingDistribution` on 2026-09-07:
+
+| Stream | On the NVR | Archived by this tool |
+| --- | --- | --- |
+| `hq` (full resolution) | 66.57 GB | yes — 63.06 GB, 94.7 % |
+| `timelapse` | 26.84 GB | no |
+| `lq` (low resolution) | 7.52 GB | no |
+| **total recording space** | **97.90 GB of 99.85 GB** | |
+
+So "about 90 GB on the device" and "63 GB archived" are both correct and not in conflict.
+The residual ~5 % of `hq` is the hour still being written plus the difference between the
+NVR's stored segments and the remuxed MP4 that export produces.
+
+**The other two streams are exportable, they are simply not requested.** Verified by
+probing a 5-minute range: `&channel=2` returns the low-resolution copy and `&type=timelapse`
+returns the timelapse, against ~49 MB for the default `hq`. They are a lower-resolution
+copy and a derived product of the same events, so `hq` is the right target for a footage
+backup — but adding them is a real option, not an impossibility. (An unrecognised value
+such as `&channel=timelapse` makes the export hang rather than error, so validate before
+passing anything through.)
+
+## The NVR is 98 % full — this constrains how often the sync must run
+
+`recordingSpace` was 97.90 GB used of 99.85 GB, leaving 1.95 GB, and `recording_start` sits
+only 4–6 days back. Footage is therefore being evicted continuously. **Anything not
+archived within that window is gone permanently**, so the sync has to run more often than
+the retention window, not merely "occasionally". This is the strongest argument for
+scheduling a daily run.
 
 A consequence worth remembering: **an hour of a detection-only camera decodes to ~30 s of
 video**, not 3600 s. `--verify=deep` therefore only asserts that ffprobe reports a positive
