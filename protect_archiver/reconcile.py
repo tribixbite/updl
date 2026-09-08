@@ -51,18 +51,6 @@ ASSUMED_SEGMENT_DURATION = timedelta(hours=1)
 
 
 @dataclass
-class AdoptionCandidate:
-    """An orphan file that has been matched back to a camera and a start time."""
-
-    path: str
-    camera_id: str
-    camera_name: str
-    start_ms: int
-    end_ms: int
-    size: int
-
-
-@dataclass
 class ReconcileReport:
     adopted: int = 0
     already_known: int = 0

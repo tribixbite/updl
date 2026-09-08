@@ -30,7 +30,6 @@ from types import TracebackType
 from typing import Any
 from typing import Dict
 from typing import Iterator
-from typing import List
 from typing import Optional
 from typing import Set
 from typing import Tuple
@@ -73,10 +72,6 @@ class SegmentRecord:
     status: str
     downloaded_at: str
     verified_at: Optional[str]
-
-    @property
-    def key(self) -> SegmentKey:
-        return (self.camera_id, self.start_ms)
 
 
 def utc_now_iso() -> str:
@@ -263,9 +258,6 @@ class ArchiveManifest:
             "SELECT status, COUNT(*) AS total FROM segments GROUP BY status"
         ).fetchall()
         return {row["status"]: row["total"] for row in rows}
-
-    def failed_segments(self) -> List[SegmentRecord]:
-        return list(self.iter_segments(status=STATUS_FAILED))
 
     # -- writes -----------------------------------------------------------------
 

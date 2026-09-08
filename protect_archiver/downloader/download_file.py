@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from typing import Dict
-from typing import Optional
 
 import requests
 
@@ -262,12 +261,3 @@ def download_file(client: Any, query: str, filename: str) -> DownloadOutcome:
     return _handle_failure(
         client, DownloadOutcome(status=STATUS_FAILED, detail=last_detail), exit_code
     )
-
-
-def cleanup_part_file(filename: str) -> Optional[str]:
-    """Remove the partial file belonging to ``filename``, returning it if one existed."""
-    part_filename = f"{filename}{PART_SUFFIX}"
-    if os.path.exists(part_filename):
-        os.remove(part_filename)
-        return part_filename
-    return None
