@@ -1,4 +1,7 @@
+import os
+
 from collections import Counter
+from datetime import datetime
 from os import path
 
 import click
@@ -9,6 +12,7 @@ from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
 from protect_archiver.manifest import SegmentRecord
 from protect_archiver.manifest import describe_counts
+from protect_archiver.utils import apply_recording_timestamp
 from protect_archiver.utils import cleanup_stale_part_files
 from protect_archiver.verify import LEVEL_HASH
 from protect_archiver.verify import LEVEL_NONE
@@ -50,6 +54,17 @@ def _store_missing_hash(
     )
     record.sha256 = digest
     return 1
+
+
+def _apply_recorded_time(record: SegmentRecord, absolute_path: str) -> int:
+    """Set one segment's file date to its recording time, if it is not already right."""
+    recorded_at = datetime.fromtimestamp(record.start_ms / 1000)
+    try:
+        if int(os.path.getmtime(absolute_path)) == int(recorded_at.timestamp()):
+            return 0
+    except OSError:
+        return 0
+    return 1 if apply_recording_timestamp(absolute_path, recorded_at) else 0
 
 
 @cli.command(
@@ -94,6 +109,18 @@ def _store_missing_hash(
     ),
 )
 @click.option(
+    "--fix-timestamps",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help=(
+        "Set each file's modification time to when its footage was recorded. The export "
+        "endpoint stamps files with the moment of export, so an archive fetched today "
+        "carries today's date for footage from last week. Content is untouched, so "
+        "recorded hashes stay valid."
+    ),
+)
+@click.option(
     "--clean-partials",
     is_flag=True,
     default=False,
@@ -105,6 +132,7 @@ def verify(
     verify_level: str,
     repair: bool,
     rehash: bool,
+    fix_timestamps: bool,
     clean_partials: bool,
 ) -> None:
     dest = path.abspath(dest)
@@ -129,6 +157,7 @@ def verify(
         unhashed = 0
         repaired = 0
         rehashed = 0
+        retimed = 0
         failures = []
 
         for record in manifest.iter_segments():
@@ -136,6 +165,9 @@ def verify(
 
             if rehash:
                 rehashed += _store_missing_hash(manifest, record, absolute_path)
+
+            if fix_timestamps and record.status == STATUS_OK:
+                retimed += _apply_recorded_time(record, absolute_path)
 
             result = verify_record(record, absolute_path, verify_level)
             reasons[result.reason] += 1

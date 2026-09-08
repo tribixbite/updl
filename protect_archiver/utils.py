@@ -113,6 +113,28 @@ def format_bytes(size: int) -> str:
     return f"{int(scaled * 100) / 100} {power_labels[n]}b"
 
 
+def apply_recording_timestamp(filename: str, recorded_at: datetime) -> bool:
+    """Set a segment's file modification time to when the footage was recorded.
+
+    The export endpoint stamps the MP4 it builds with the moment of the export, so a
+    freshly downloaded segment of last week's footage carries this week's date. Anything
+    that sorts or filters by file date -- Explorer, a media library, a retention script --
+    then sees when the archive was fetched rather than when the events happened.
+
+    Only the filesystem timestamp is changed. The bytes are untouched, so the SHA-256
+    recorded in the manifest stays valid; the MP4's own internal creation_time still
+    reflects the export and would need a remux to correct, which is not worth rewriting
+    an archive for.
+    """
+    try:
+        timestamp = recorded_at.timestamp()
+        os.utime(filename, (timestamp, timestamp))
+        return True
+    except OSError as error:
+        logging.warning(f"Could not set the recording time on {filename}: {error}")
+        return False
+
+
 def cleanup_stale_part_files(root: str) -> List[str]:
     """Delete leftover ``.part`` files under ``root`` and return what was removed.
 

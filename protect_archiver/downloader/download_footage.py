@@ -11,8 +11,10 @@ from typing import Set
 from protect_archiver.dataclasses import Camera
 from protect_archiver.downloader.download_file import download_file
 from protect_archiver.manifest import STATUS_EMPTY
+from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
 from protect_archiver.manifest import SegmentKey
+from protect_archiver.utils import apply_recording_timestamp
 from protect_archiver.utils import build_download_dir
 from protect_archiver.utils import calculate_intervals
 from protect_archiver.utils import make_camera_name_fs_safe
@@ -131,6 +133,11 @@ def download_footage(
 
         # download the file
         outcome = download_file(client, video_export_query, filename)
+
+        if outcome.status == STATUS_OK:
+            # Stamp the file with when the footage happened rather than when it was
+            # fetched, so the archive sorts by event time on disk.
+            apply_recording_timestamp(filename, interval_start)
 
         if manifest is not None:
             manifest.record(

@@ -17,8 +17,10 @@ from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
 from protect_archiver.sync import ProtectSync
 from protect_archiver.utils import PART_SUFFIX
+from protect_archiver.utils import apply_recording_timestamp
 from protect_archiver.verify import LEVEL_HASH
 from protect_archiver.verify import LEVEL_QUICK
+from protect_archiver.verify import sha256_file
 
 
 CLIP = b"v" * 4096
@@ -302,3 +304,44 @@ def test_a_camera_with_no_recordings_is_skipped_not_swept_from_year_one(
 
     assert not export_calls(responses)
     assert client.files_downloaded == 0
+
+
+def test_downloaded_files_carry_the_recording_time_not_the_download_time(
+    responses: Any, client: Any, camera: Camera, test_output_dest: str
+) -> None:
+    """The export endpoint dates its MP4s at the moment of export.
+
+    Left alone, an archive fetched today shows today's date for last week's footage, so
+    anything sorting by file date sees when it was collected, not when it happened.
+    """
+    responses.add(
+        responses.GET, "https://unifi:443/proxy/protect/api/video/export", body=CLIP, status=200
+    )
+
+    run_sync(client, camera, test_output_dest)
+
+    with ArchiveManifest(test_output_dest) as manifest:
+        for record in manifest.iter_segments():
+            expected = record.start_ms / 1000
+            actual = os.path.getmtime(manifest.absolute_path(record))
+            assert abs(actual - expected) < 2, record.path
+
+
+def test_fixing_timestamps_leaves_the_bytes_and_hash_alone(
+    responses: Any, client: Any, camera: Camera, test_output_dest: str
+) -> None:
+    responses.add(
+        responses.GET, "https://unifi:443/proxy/protect/api/video/export", body=CLIP, status=200
+    )
+    run_sync(client, camera, test_output_dest)
+
+    with ArchiveManifest(test_output_dest) as manifest:
+        record = next(manifest.iter_segments())
+        path = manifest.absolute_path(record)
+        digest_before = sha256_file(path)
+        os.utime(path, (0, 0))
+
+        apply_recording_timestamp(path, datetime.fromtimestamp(record.start_ms / 1000))
+
+        assert sha256_file(path) == digest_before
+        assert abs(os.path.getmtime(path) - record.start_ms / 1000) < 2
