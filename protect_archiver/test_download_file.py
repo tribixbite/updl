@@ -114,6 +114,52 @@ def test_rate_limiting_is_retried(responses: Any, client: Any, test_output_dest:
     assert outcome.status == STATUS_OK
 
 
+def test_no_footage_is_recorded_as_empty_not_failed(
+    responses: Any, client: Any, test_output_dest: str
+) -> None:
+    """A 404 carrying {"error": 502} means 'no footage in that range', not a failure.
+
+    Recorded as failed instead, every hour a camera was offline would be re-requested on
+    every future run forever, and every run would end by reporting failures.
+    """
+    responses.add(responses.GET, EXPORT_URL, status=404, json={"error": 502, "operationId": 1})
+    filename = target(test_output_dest)
+
+    outcome = download_file(client, QUERY, filename)
+
+    assert outcome.status == STATUS_EMPTY
+    assert client.files_failed == 0
+    assert not os.path.exists(filename)
+
+
+def test_no_footage_is_not_retried(responses: Any, client: Any, test_output_dest: str) -> None:
+    responses.add(responses.GET, EXPORT_URL, status=404, json={"error": 502})
+
+    download_file(client, QUERY, target(test_output_dest))
+
+    export_calls = [call for call in responses.calls if "video/export" in call.request.url]
+    assert len(export_calls) == 1
+
+
+def test_a_bare_404_is_still_a_failure(responses: Any, client: Any, test_output_dest: str) -> None:
+    """The no-footage check must stay narrow: a real 404 is not an empty range."""
+    responses.add(responses.GET, EXPORT_URL, status=404, json={"error": "no such camera"})
+
+    outcome = download_file(client, QUERY, target(test_output_dest))
+
+    assert outcome.status == STATUS_FAILED
+
+
+def test_a_404_with_a_different_error_code_is_still_a_failure(
+    responses: Any, client: Any, test_output_dest: str
+) -> None:
+    responses.add(responses.GET, EXPORT_URL, status=404, json={"error": 500})
+
+    outcome = download_file(client, QUERY, target(test_output_dest))
+
+    assert outcome.status == STATUS_FAILED
+
+
 def test_permanent_client_error_is_not_retried(
     responses: Any, client: Any, test_output_dest: str
 ) -> None:

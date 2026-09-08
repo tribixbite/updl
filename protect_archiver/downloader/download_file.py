@@ -30,6 +30,18 @@ MINIMUM_CLIP_BYTES = 300
 # itself was wrong, and repeating it verbatim will not help.
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
+# "There is no footage in that range" is reported as an HTTP 404 whose body is
+# {"error": 502} -- a confusing pair, since neither number means what it appears to.
+# Verified against a UDM Pro SE on 2026-09-07 by requesting a range 30 days in the future
+# and one long before the NVR's retention began: both answer with exactly this, while the
+# hours either side of a real gap return 200 and video.
+#
+# Distinguishing it matters. Treated as a failure, every hour a camera happened to be
+# offline would be re-requested on every future run, for as long as the archive exists,
+# and each run would end by reporting failures that no amount of retrying can fix.
+NO_FOOTAGE_STATUS = 404
+NO_FOOTAGE_ERROR_CODE = 502
+
 # Cap the exponential backoff so a long overnight run cannot end up sleeping for hours
 # between attempts.
 MAXIMUM_RETRY_DELAY_SECONDS = 300
@@ -71,14 +83,34 @@ def _authenticated_get(client: Any, uri: str, force_token_refresh: bool = False)
     return requests.get(uri, headers={"Authorization": f"Bearer {token}"}, **common)
 
 
-def _error_message(response: Any) -> str:
+def _response_body(response: Any) -> Any:
+    """Parse a response body as JSON, or return None if it is not."""
     try:
-        data = json.loads(response.content)
+        return json.loads(response.content)
     except Exception:
+        return None
+
+
+def _error_message(response: Any) -> str:
+    data = _response_body(response)
+    if data is None:
         return "(no information available)"
     if isinstance(data, dict):
         return str(data.get("error") or data.get("message") or data)
     return str(data)
+
+
+def _reports_no_footage(response: Any) -> bool:
+    """Whether the NVR is saying this range holds no footage, rather than erroring.
+
+    Deliberately narrow: a bare 404 still counts as a failure, because it is also what a
+    genuinely malformed request produces. Only the exact pairing documented above is
+    read as an empty range.
+    """
+    if response.status_code != NO_FOOTAGE_STATUS:
+        return False
+    data = _response_body(response)
+    return isinstance(data, dict) and data.get("error") == NO_FOOTAGE_ERROR_CODE
 
 
 def _stream_to_file(response: Any, filename: str) -> DownloadOutcome:
@@ -166,6 +198,16 @@ def download_file(client: Any, query: str, filename: str) -> DownloadOutcome:
                 response = _authenticated_get(client, uri, force_token_refresh=True)
 
             if response.status_code != 200:
+                if _reports_no_footage(response):
+                    logging.info(
+                        "The NVR holds no footage for this time range - recording it as"
+                        " empty so it is not requested again"
+                    )
+                    client.files_skipped += 1
+                    return DownloadOutcome(
+                        status=STATUS_EMPTY, detail="NVR reports no footage for this range"
+                    )
+
                 last_detail = (
                     f"{response.status_code} {response.reason}: {_error_message(response)}"
                 )

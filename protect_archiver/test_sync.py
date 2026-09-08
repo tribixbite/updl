@@ -235,6 +235,32 @@ def test_a_failed_hour_is_retried_by_the_next_run(
         assert manifest.status_counts() == {STATUS_OK: 3}
 
 
+def test_recording_gaps_are_settled_not_retried_forever(
+    responses: Any, client: Any, camera: Camera, test_output_dest: str
+) -> None:
+    """Hours the camera was offline must settle as empty, or every run re-requests them."""
+    responses.add(
+        responses.GET,
+        "https://unifi:443/proxy/protect/api/video/export",
+        status=404,
+        json={"error": 502, "operationId": 1},
+    )
+
+    run_sync(client, camera, test_output_dest)
+    first_run_calls = len(export_calls(responses))
+
+    with ArchiveManifest(test_output_dest) as manifest:
+        assert manifest.status_counts() == {STATUS_EMPTY: 3}
+
+    second_client = ProtectClient(
+        destination_path=test_output_dest, password="test", use_subfolders=True
+    )
+    run_sync(second_client, camera, test_output_dest)
+
+    assert len(export_calls(responses)) == first_run_calls
+    assert second_client.files_downloaded == 0
+
+
 def test_ignore_state_refetches_everything(
     responses: Any, client: Any, camera: Camera, test_output_dest: str
 ) -> None:

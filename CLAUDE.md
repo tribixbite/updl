@@ -41,12 +41,60 @@ to the address on the UI account. Consequences that are easy to get wrong:
 - **A code can be supplied with `--mfa-code` / `PROTECT_MFA_CODE`**, otherwise it is
   prompted for. With no terminal attached it fails with an explanation rather than hanging,
   which is the only sane behaviour for a piped or scheduled run.
+- **`rememberMe: true` yields a 30-day session token.** Measured against this UDM Pro SE on
+  2026-09-07: the returned JWT's `exp` was 720 h out. So in practice a code is typed about
+  once a month, not once a run — which is why caching the token was worth building.
 
 Because the factor is email, **there is no unattended mode**. Scheduling is deliberately
 out of scope; a run is started by hand.
 
 `PROTECT_EMAIL` is set in the environment but **this tool does not use it** — the CLI
 authenticates with `--username`, not an email address.
+
+## The cameras, and what they cost to archive
+
+Measured on the first real run, 2026-09-07. **Segment size varies by two orders of
+magnitude depending on the camera's recording mode**, so do not estimate the archive from
+a segment count alone.
+
+| Camera | ID | Mode | Per hour |
+| --- | --- | --- | --- |
+| G4 Instant | `cam00000000000000000001` | continuous | ~424 MB |
+| G4 Instant | `cam00000000000000000003` | continuous | ~424 MB |
+| G4 Doorbell Pro | `cam00000000000000000002` | detection only | ~6 MB |
+| G4 Instant | `cam00000000000000000004` | no recordings | — skipped |
+
+The two "G4 Instant" cameras share a display name; the filesystem-safe name disambiguates
+them with the last four characters of the camera id (`G4 Instant (e745)` vs
+`G4 Instant (3fef)`), so they do not collide on disk.
+
+NVR retention at first run was 4–6 days, ~363 hourly segments, roughly 90 GB. Throughput
+over the LAN was ~18 MB/s, so a full backfill takes on the order of an hour or two.
+
+A consequence worth remembering: **an hour of a detection-only camera decodes to ~30 s of
+video**, not 3600 s. `--verify=deep` therefore only asserts that ffprobe reports a positive
+duration; asserting a duration near 3600 would fail every doorbell segment.
+
+## "No footage in that range" is an HTTP 404 carrying `{"error": 502}`
+
+Neither number means what it looks like, and this is the single most confusing thing the
+export endpoint does. Established on 2026-09-07 by probing a range 30 days in the future
+and one long before retention began — **both** return exactly `404 {"error": 502,
+"operationId": N}`, while the hours either side of a real gap return 200 and video. It
+reproduces identically on every attempt, so it is not transient.
+
+The first live run hit this on 11 hours where a camera had been offline. It matters which
+way it is classified:
+
+- as a **failure**, every one of those hours is re-requested on every future run forever,
+  and every run ends by reporting failures no amount of retrying can fix;
+- as **empty**, it settles once and is never asked for again, and the gap stays visible in
+  the manifest as a deliberate record rather than as an error.
+
+`_reports_no_footage` in `downloader/download_file.py` matches that exact pairing and
+nothing looser — a bare 404, or a 404 with any other error code, is still a real failure,
+because a malformed request produces one too. Rows already recorded as `failed` heal
+themselves: the next run retries them, gets this response, and rewrites them as `empty`.
 
 ## Running it
 

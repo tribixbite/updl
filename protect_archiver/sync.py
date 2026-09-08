@@ -46,6 +46,12 @@ class ProtectSync:
         else:
             state = {"cameras": {}}
 
+        # The statefile is no longer authoritative, so a damaged or hand-edited one must
+        # not be able to abort a run that the manifest could have driven perfectly well.
+        if not isinstance(state, dict) or not isinstance(state.get("cameras"), dict):
+            logging.warning(f"Ignoring malformed statefile at {self.statefile}")
+            state = {"cameras": {}}
+
         return state
 
     def writestate(self, state: dict) -> None:
