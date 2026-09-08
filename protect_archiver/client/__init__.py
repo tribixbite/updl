@@ -30,6 +30,10 @@ class ProtectClient:
         # aka read_timeout - time to wait until a socket read response happens
         download_timeout: float = Config.DOWNLOAD_TIMEOUT,
         use_utc_filenames: bool = Config.USE_UTC_FILENAMES,
+        max_retries: int = Config.MAX_RETRIES,
+        # one-time multi-factor code, for SSO accounts with a second factor enrolled
+        mfa_code: Optional[str] = None,
+        use_session_store: bool = Config.USE_SESSION_STORE,
     ) -> None:
         self.protocol = protocol
         self.address = address
@@ -53,7 +57,10 @@ class ProtectClient:
         self.bytes_downloaded = 0
         self.files_skipped = 0
         self.files_failed = 0
-        self.max_retries = 3
+        # Segments the manifest already accounted for. Counted apart from files_skipped
+        # so a re-run's summary distinguishes "nothing to do" from "something went wrong".
+        self.files_already_archived = 0
+        self.max_retries = max_retries
 
         self._access_key = None
         self._api_token = None
@@ -81,6 +88,8 @@ class ProtectClient:
                 self.username,
                 self.password,
                 self.verify_ssl,
+                mfa_code=mfa_code,
+                use_session_store=use_session_store,
             )
 
     def get_camera_list(self) -> List[Any]:

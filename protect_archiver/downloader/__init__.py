@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 from typing import List
+from typing import Optional
+from typing import Set
 
 from protect_archiver.config import Config
 from protect_archiver.downloader.download_file import download_file
@@ -9,6 +11,8 @@ from protect_archiver.downloader.download_motion_event import download_motion_ev
 from protect_archiver.downloader.download_snapshot import download_snapshot
 from protect_archiver.downloader.get_camera_list import get_camera_list
 from protect_archiver.downloader.get_motion_event_list import get_motion_event_list
+from protect_archiver.manifest import ArchiveManifest
+from protect_archiver.manifest import SegmentKey
 
 
 class Downloader:
@@ -50,8 +54,21 @@ class Downloader:
         camera: Any,
         disable_alignment: bool = Config.DISABLE_ALIGNMENT,
         disable_splitting: bool = Config.DISABLE_SPLITTING,
+        manifest: Optional[ArchiveManifest] = None,
+        settled: Optional[Set[SegmentKey]] = None,
+        verify_level: str = Config.VERIFY_LEVEL,
     ) -> Any:
-        return download_footage(client, start, end, camera, disable_alignment, disable_splitting)
+        return download_footage(
+            client,
+            start,
+            end,
+            camera,
+            disable_alignment,
+            disable_splitting,
+            manifest=manifest,
+            settled=settled,
+            verify_level=verify_level,
+        )
 
     @staticmethod
     def download_snapshot(client: Any, start: datetime, camera: Any) -> Any:

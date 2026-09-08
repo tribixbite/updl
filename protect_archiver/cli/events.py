@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 import click
 
@@ -54,6 +55,30 @@ from protect_archiver.utils import print_download_stats
     prompt="Password for local Protect user",
     hide_input=True,
     envvar="PROTECT_PASSWORD",
+    show_envvar=True,
+)
+@click.option(
+    "--mfa-code",
+    required=False,
+    default=None,
+    help=(
+        "One-time multi-factor code, for accounts backed by Ubiquiti SSO. "
+        "If omitted and a code is required, it is prompted for. The resulting session "
+        "is cached, so this is normally only needed occasionally."
+    ),
+    envvar="PROTECT_MFA_CODE",
+    show_envvar=True,
+)
+@click.option(
+    "--no-session-store",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help=(
+        "Do not cache the session token between runs. Every run will then need a fresh "
+        "login, and a fresh multi-factor code if the account requires one."
+    ),
+    envvar="PROTECT_NO_SESSION_STORE",
     show_envvar=True,
 )
 @click.option(
@@ -195,6 +220,8 @@ def events(
     not_unifi_os: bool,
     username: str,
     password: str,
+    mfa_code: Optional[str],
+    no_session_store: bool,
     verify_ssl: bool,
     cameras: str,
     download_wait: int,
@@ -214,6 +241,8 @@ def events(
         not_unifi_os=not_unifi_os,
         username=username,
         password=password,
+        mfa_code=mfa_code,
+        use_session_store=not no_session_store,
         verify_ssl=verify_ssl,
         ignore_failed_downloads=ignore_failed_downloads,
         destination_path=dest,

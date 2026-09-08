@@ -1,161 +1,127 @@
 # file downloader
+import hashlib
 import json
 import logging
 import os
 import time
 
+from dataclasses import dataclass
 from typing import Any
+from typing import Dict
+from typing import Optional
 
 import requests
 
-from protect_archiver.errors import DownloadFailed
 from protect_archiver.errors import ProtectError
+from protect_archiver.manifest import STATUS_EMPTY
+from protect_archiver.manifest import STATUS_FAILED
+from protect_archiver.manifest import STATUS_OK
+from protect_archiver.utils import PART_SUFFIX
 from protect_archiver.utils import format_bytes
 from protect_archiver.utils import print_download_stats
 
 
-def download_file(client: Any, query: str, filename: str) -> None:
-    exit_code = 1
-    retry_delay = max(client.download_wait, 3)
-    uri = f"{client.session.authority}{client.session.base_path}{query}"
+# A response shorter than this is the Protect API's way of saying "there is no footage
+# in that window" rather than a real clip.
+MINIMUM_CLIP_BYTES = 300
 
-    # skip downloading files that already exist on disk if argument --skip-existing-files is present
-    # TODO(dcramer): sanity check on filesize would be valuable here
-    if bool(client.skip_existing_files) and os.path.exists(filename):
-        logging.info(
-            f"File {filename} already exists on disk and argument '--skip-existing-files' "
-            "is present - skipping download \n"
+# Statuses worth trying again: the export endpoint routinely 500s on a busy NVR, and
+# answers 429 when asked for too much at once. A 4xx other than these means the request
+# itself was wrong, and repeating it verbatim will not help.
+RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
+# Cap the exponential backoff so a long overnight run cannot end up sleeping for hours
+# between attempts.
+MAXIMUM_RETRY_DELAY_SECONDS = 300
+
+# Read in 1 MiB blocks so the hash is computed as the bytes stream past, rather than by
+# reading the finished file back off disk.
+STREAM_BLOCK_SIZE = 1024 * 1024
+
+
+@dataclass
+class DownloadOutcome:
+    """What happened to one requested segment.
+
+    Returned rather than recorded here so that the caller, which knows the segment's
+    camera and time range, owns the manifest write. This keeps the transfer logic
+    unaware of the archive index.
+    """
+
+    status: str
+    size: int = 0
+    sha256: str = ""
+    detail: str = ""
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status in (STATUS_OK, STATUS_EMPTY)
+
+
+def _authenticated_get(client: Any, uri: str, force_token_refresh: bool = False) -> Any:
+    """Issue the export request with whichever auth scheme this session uses."""
+    token = client.session.get_api_token(force=force_token_refresh)
+    common: Dict[str, Any] = {
+        "verify": client.verify_ssl,
+        "timeout": client.download_timeout,
+        "stream": True,
+    }
+    if client.session.__class__.__name__ == "UniFiOSClient":
+        return requests.get(uri, cookies={"TOKEN": token}, **common)
+    return requests.get(uri, headers={"Authorization": f"Bearer {token}"}, **common)
+
+
+def _error_message(response: Any) -> str:
+    try:
+        data = json.loads(response.content)
+    except Exception:
+        return "(no information available)"
+    if isinstance(data, dict):
+        return str(data.get("error") or data.get("message") or data)
+    return str(data)
+
+
+def _stream_to_file(response: Any, filename: str) -> DownloadOutcome:
+    """Write a response body to disk atomically, hashing it on the way through.
+
+    The bytes land in a sibling ``.part`` file which is renamed into place only once the
+    transfer completes. Without this, killing a run mid-write leaves a truncated MP4
+    that is indistinguishable from a complete one, and every later run skips it.
+    """
+    part_filename = f"{filename}{PART_SUFFIX}"
+    digest = hashlib.sha256()
+    written = 0
+
+    os.makedirs(os.path.dirname(part_filename) or ".", exist_ok=True)
+
+    try:
+        with open(part_filename, "wb") as fp:
+            for chunk in response.iter_content(STREAM_BLOCK_SIZE):
+                if not chunk:
+                    continue
+                written += len(chunk)
+                digest.update(chunk)
+                fp.write(chunk)
+    except Exception:
+        if os.path.exists(part_filename):
+            os.remove(part_filename)
+        raise
+
+    if written < MINIMUM_CLIP_BYTES:
+        # No footage for this window. Remove the stub rather than leaving an unplayable
+        # file in the archive, and report it so it is recorded and never re-requested.
+        os.remove(part_filename)
+        return DownloadOutcome(
+            status=STATUS_EMPTY, detail=f"{written} bytes, below the {MINIMUM_CLIP_BYTES} minimum"
         )
-        client.files_skipped += 1
-        return  # skip the download
 
-    for retry_num in range(client.max_retries):
-        # make the GET request to retrieve the video file or snapshot
-        try:
-            start = time.monotonic()
-            response = (
-                requests.get(
-                    uri,
-                    cookies={"TOKEN": client.session.get_api_token()},
-                    verify=client.verify_ssl,
-                    timeout=client.download_timeout,
-                    stream=True,
-                )
-                if client.session.__class__.__name__ == "UniFiOSClient"
-                else requests.get(
-                    uri,
-                    headers={"Authorization": f"Bearer {client.session.get_api_token()}"},
-                    verify=client.verify_ssl,
-                    timeout=client.download_timeout,
-                    stream=True,
-                )
-            )
+    os.replace(part_filename, filename)
+    return DownloadOutcome(status=STATUS_OK, size=written, sha256=digest.hexdigest())
 
-            if response.status_code == 401:
-                # invalid current api token - we special case this
-                # as we dont want to retry on consecutive auth failures
-                # TODO: refactor this
-                start = time.monotonic()
-                response = (
-                    requests.get(
-                        uri,
-                        cookies={"TOKEN": client.session.get_api_token(force=True)},
-                        verify=client.verify_ssl,
-                        timeout=client.download_timeout,
-                        stream=True,
-                    )
-                    if client.session.__class__.__name__ == "UniFiOSClient"
-                    else requests.get(
-                        uri,
-                        headers={
-                            "Authorization": f"Bearer {client.session.get_api_token(force=True)}"
-                        },
-                        verify=client.verify_ssl,
-                        timeout=client.download_timeout,
-                        stream=True,
-                    )
-                )
 
-            # write file to disk if response.status_code is 200,
-            # otherwise log error and then either exit or skip the download
-            if response.status_code != 200:
-                try:
-                    data = json.loads(response.content)
-                    error_message = data.get("error") or data or "(no information available)"
-                except Exception:
-                    data = None
-                    error_message = "(no information available)"
-
-                # TODO
-                logging.exception(
-                    f"Download failed with status {response.status_code} {response.reason}:\n"
-                    f"{error_message}"
-                )
-                client.files_failed += 1
-                # if response.status_code == 401:
-                #     cls = Errors.AuthorizationFailed
-                # else:
-                #     cls = Errors.DownloadFailed
-                # raise cls(
-                #     f"Download failed with status {response.status_code} {response.reason}:\n{error_message}"
-                # )
-
-            else:
-                total_bytes = int(response.headers.get("content-length") or 0)
-                cur_bytes = 0
-                if not total_bytes:
-                    with open(filename, "wb") as fp:
-                        content = response.content
-                        cur_bytes = len(content)
-                        total_bytes = cur_bytes
-                        fp.write(content)
-
-                else:
-                    # skip download if remote file is smaller than 300b
-                    if total_bytes < 300:
-                        logging.warning(
-                            "File is smaller than 300 bytes (empty video clip) - skipping download"
-                        )
-                        client.files_skipped += 1
-                        return
-
-                    with open(filename, "wb") as fp:
-                        for chunk in response.iter_content(None):
-                            cur_bytes += len(chunk)
-                            fp.write(chunk)
-                            # TODO
-                            # done = int(50 * cur_bytes / total_bytes)
-                            # sys.stdout.write("\r[%s%s] %sps" % ('=' * done, ' ' * (50-done),
-                            #   format_bytes(cur_bytes//(time.monotonic() - start))))
-                            # print('')
-
-                elapsed = time.monotonic() - start
-                logging.info(
-                    f"Download successful after {int(elapsed)}s ({format_bytes(cur_bytes)}, "
-                    f"{format_bytes(int(cur_bytes // elapsed))}ps)"
-                )
-                client.files_downloaded += 1
-                client.bytes_downloaded += cur_bytes
-
-        except requests.exceptions.RequestException as request_exception:
-            # clean up
-            if os.path.exists(filename):
-                os.remove(filename)
-            logging.exception(f"Download failed: {request_exception}")
-            exit_code = 5
-        except DownloadFailed:
-            # clean up
-            if os.path.exists(filename):
-                os.remove(filename)
-            logging.exception(
-                f"Download failed with status {response.status_code} {response.reason}"
-            )
-            exit_code = 4
-        else:
-            return
-
-        logging.warning(f"Retrying in {retry_delay} second(s)...")
-        time.sleep(retry_delay)
+def _handle_failure(client: Any, outcome: DownloadOutcome, exit_code: int) -> DownloadOutcome:
+    """Apply the caller's chosen policy for a segment that could not be downloaded."""
+    client.files_failed += 1
 
     if not client.ignore_failed_downloads:
         logging.info(
@@ -164,8 +130,102 @@ def download_file(client: Any, query: str, filename: str) -> None:
         )
         print_download_stats(client)
         raise ProtectError(exit_code)
-    else:
+
+    logging.info("Argument '--ignore-failed-downloads' is present, continue downloading files...")
+    return outcome
+
+
+def download_file(client: Any, query: str, filename: str) -> DownloadOutcome:
+    """Download one segment, retrying transient failures, and report what happened."""
+    exit_code = 1
+    base_delay = max(client.download_wait, 3)
+    uri = f"{client.session.authority}{client.session.base_path}{query}"
+    last_detail = ""
+
+    # skip downloading files that already exist on disk if argument --skip-existing-files is present
+    if bool(client.skip_existing_files) and os.path.exists(filename):
         logging.info(
-            "Argument '--ignore-failed-downloads' is present, continue downloading files..."
+            f"File {filename} already exists on disk and argument '--skip-existing-files' "
+            "is present - skipping download \n"
         )
         client.files_skipped += 1
+        return DownloadOutcome(
+            status=STATUS_OK,
+            size=os.path.getsize(filename),
+            detail="already present on disk",
+        )
+
+    for retry_num in range(client.max_retries):
+        try:
+            start = time.monotonic()
+            response = _authenticated_get(client, uri)
+
+            if response.status_code == 401:
+                # An expired session is not a transport failure and must not consume the
+                # retry budget: refresh the token once and reissue immediately.
+                response = _authenticated_get(client, uri, force_token_refresh=True)
+
+            if response.status_code != 200:
+                last_detail = (
+                    f"{response.status_code} {response.reason}: {_error_message(response)}"
+                )
+                if response.status_code not in RETRYABLE_STATUS_CODES:
+                    logging.error(f"Download failed, not retryable: {last_detail}")
+                    return _handle_failure(
+                        client, DownloadOutcome(status=STATUS_FAILED, detail=last_detail), 4
+                    )
+
+                logging.warning(f"Download failed: {last_detail}")
+                exit_code = 4
+            else:
+                outcome = _stream_to_file(response, filename)
+
+                if outcome.status == STATUS_EMPTY:
+                    logging.info(
+                        f"No footage available for this segment ({outcome.detail})"
+                        " - recording it as empty"
+                    )
+                    client.files_skipped += 1
+                    return outcome
+
+                elapsed = max(time.monotonic() - start, 1e-6)
+                logging.info(
+                    f"Download successful after {int(elapsed)}s ({format_bytes(outcome.size)}, "
+                    f"{format_bytes(int(outcome.size // elapsed))}ps)"
+                )
+                client.files_downloaded += 1
+                client.bytes_downloaded += outcome.size
+                return outcome
+
+        except requests.exceptions.RequestException as request_exception:
+            last_detail = str(request_exception)
+            logging.warning(f"Download failed: {request_exception}")
+            exit_code = 5
+
+        except OSError as os_error:
+            # A full or disconnected destination volume will not fix itself by retrying,
+            # and continuing would silently produce an incomplete archive.
+            logging.error(f"Could not write {filename}: {os_error}")
+            return _handle_failure(
+                client, DownloadOutcome(status=STATUS_FAILED, detail=str(os_error)), 5
+            )
+
+        if retry_num < client.max_retries - 1:
+            delay = min(base_delay * (2**retry_num), MAXIMUM_RETRY_DELAY_SECONDS)
+            logging.warning(
+                f"Retrying in {delay} second(s) (attempt {retry_num + 2} of {client.max_retries})..."
+            )
+            time.sleep(delay)
+
+    return _handle_failure(
+        client, DownloadOutcome(status=STATUS_FAILED, detail=last_detail), exit_code
+    )
+
+
+def cleanup_part_file(filename: str) -> Optional[str]:
+    """Remove the partial file belonging to ``filename``, returning it if one existed."""
+    part_filename = f"{filename}{PART_SUFFIX}"
+    if os.path.exists(part_filename):
+        os.remove(part_filename)
+        return part_filename
+    return None

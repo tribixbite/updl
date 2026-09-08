@@ -38,15 +38,35 @@ def test_get_camera_list(client: Any) -> None:
     assert len(results) == 3
     assert results[0].id == "exteriorCameraId"
     assert results[0].name == "Exterior"
-    assert results[0].recording_start == datetime(2020, 1, 8, 23, 26, 9, 586000)
 
     assert results[1].id == "testCameraId"
     assert results[1].name == "Test"
-    assert results[1].recording_start == datetime(2019, 10, 20, 18, 0, 0, 134000)
 
     assert results[2].id == "offlineCameraId"
     assert results[2].name == "Offline"
     assert results[2].recording_start == datetime.min
+
+
+def test_get_camera_list_recording_start_is_local_time(
+    client: Any, sample_bootstrap_json: Any
+) -> None:
+    """recording_start must be naive *local* time, not naive UTC.
+
+    Interval boundaries derived from it are converted back to epoch milliseconds with
+    datetime.timestamp(), which interprets a naive value as local. Reading the API's
+    timestamp as UTC therefore shifted the start of every camera's first sync by the
+    local UTC offset. Asserting against fromtimestamp keeps this true in any timezone.
+    """
+    results = client.get_camera_list()
+    expected = {
+        camera["id"]: datetime.fromtimestamp(camera["stats"]["video"]["recordingStart"] / 1000)
+        for camera in sample_bootstrap_json["cameras"]
+        if camera["stats"]["video"]["recordingStart"]
+    }
+
+    for camera in results:
+        if camera.id in expected:
+            assert camera.recording_start == expected[camera.id]
 
 
 def test_download_footage(

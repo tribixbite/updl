@@ -38,7 +38,12 @@ def get_camera_list(session: Any) -> List[Camera]:
     for camera in cameras:
         camera_data = Camera(id=camera["id"], name=camera["name"], recording_start=datetime.min)
         if camera["stats"]["video"]["recordingStart"]:
-            camera_data.recording_start = datetime.utcfromtimestamp(
+            # Naive *local* time, matching the rest of the codebase: interval boundaries
+            # are later turned back into epoch milliseconds with datetime.timestamp(),
+            # which interprets a naive value as local. Using utcfromtimestamp here made
+            # the first sync of each camera start a whole UTC offset away from the real
+            # recording start. (It is also removed in Python 3.12.)
+            camera_data.recording_start = datetime.fromtimestamp(
                 camera["stats"]["video"]["recordingStart"] / 1000
             )
         camera_list.append(camera_data)

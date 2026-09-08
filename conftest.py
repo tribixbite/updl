@@ -13,6 +13,16 @@ from protect_archiver.client import ProtectClient
 from protect_archiver.dataclasses import Camera
 
 
+@pytest.fixture(autouse=True)
+def isolated_session_store(tmp_path: Any, monkeypatch: Any) -> None:
+    """Keep the suite away from the real per-user session store.
+
+    Authenticating in a test would otherwise write a token into the developer's own
+    profile directory, and a stale entry there could silently satisfy a later test.
+    """
+    monkeypatch.setenv("PROTECT_SESSION_STORE", str(tmp_path / "sessions.json"))
+
+
 @pytest.fixture
 def sample_bootstrap_json() -> Dict[str, Any]:
     with open("fixtures/bootstrap.json") as fp:

@@ -25,3 +25,12 @@ class Config:
     )
     MAX_RETRIES: int = 3
     USE_UTC_FILENAMES: bool = False
+
+    # Cache the UniFi OS session token between runs. Accounts backed by Ubiquiti SSO
+    # need a second factor at login, and /api/auth/login is rate limited, so reusing a
+    # live token is what keeps repeat runs from demanding a freshly emailed code.
+    USE_SESSION_STORE: bool = True
+
+    # How hard to work to prove a file already on disk is intact before skipping it.
+    # See protect_archiver.verify for what each level checks.
+    VERIFY_LEVEL: str = "quick"

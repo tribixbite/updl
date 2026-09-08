@@ -1,6 +1,7 @@
 from .download import *  # NOQA
 from .events import *  # NOQA
 from .sync import *  # NOQA
+from .verify import *  # NOQA
 
 
 def main() -> None:

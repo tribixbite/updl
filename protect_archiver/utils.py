@@ -5,9 +5,16 @@ from datetime import datetime
 from datetime import timedelta
 from typing import Any
 from typing import Iterable
+from typing import List
 from typing import Tuple
 
 from protect_archiver.dataclasses import Camera
+
+
+# Suffix for a download still in flight. The bytes are written here and renamed into
+# place only on success, so an interrupted run never leaves a truncated file that later
+# runs would mistake for a complete one.
+PART_SUFFIX = ".part"
 
 
 def json_encode(obj: Any) -> Any:
@@ -97,10 +104,37 @@ def format_bytes(size: int) -> str:
     power = 2**10
     n = 0
     power_labels = {0: "", 1: "k", 2: "m", 3: "g", 4: "t"}
-    while size > power:
-        size //= power
+    # Divide as a float: integer division here would round 1536 bytes down to '1 kb'
+    # and discard the fraction the format string then tries to show.
+    scaled = float(size)
+    while scaled > power and n < max(power_labels):
+        scaled /= power
         n += 1
-    return f"{int(size * 100) / 100} {power_labels[n]}b"
+    return f"{int(scaled * 100) / 100} {power_labels[n]}b"
+
+
+def cleanup_stale_part_files(root: str) -> List[str]:
+    """Delete leftover ``.part`` files under ``root`` and return what was removed.
+
+    A partial file is worthless: it is a prefix of a segment that will be requested
+    again in full. Clearing them at the start of a run stops an archive accumulating
+    debris from every interrupted attempt.
+    """
+    removed = []
+    for directory, _, filenames in os.walk(root):
+        for name in filenames:
+            if not name.endswith(PART_SUFFIX):
+                continue
+            path = os.path.join(directory, name)
+            try:
+                os.remove(path)
+                removed.append(path)
+            except OSError as error:
+                logging.warning(f"Could not remove stale partial file {path}: {error}")
+
+    if removed:
+        logging.info(f"Removed {len(removed)} stale partial download(s) from a previous run")
+    return removed
 
 
 def make_camera_name_fs_safe(camera: Camera) -> str:
@@ -111,9 +145,13 @@ def make_camera_name_fs_safe(camera: Camera) -> str:
 
 
 def print_download_stats(client: Any) -> None:
-    files_total = client.files_downloaded + client.files_skipped + client.files_failed
+    already_archived = getattr(client, "files_already_archived", 0)
+    files_total = (
+        client.files_downloaded + client.files_skipped + client.files_failed + already_archived
+    )
     print(
         f"{client.files_downloaded} files downloaded ({format_bytes(client.bytes_downloaded)}), "
+        f"{already_archived} already archived, "
         f"{client.files_skipped} files skipped, "
         f"{client.files_failed} files failed, "
         f"{files_total} files total"
