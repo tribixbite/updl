@@ -6,9 +6,25 @@ Back up UniFi Protect footage to a local archive at `D:\Unifi` on this Windows b
 way that can be re-run at any future date without re-downloading anything it already
 holds, and that can optionally prove what is on disk is not corrupt.
 
-The archiving machinery for this was built on 2026-09-07 (see
-`docs/superpowers/specs/2026-09-07-resumable-protect-archive-design.md`). Nothing has
-been synced from the live NVR yet — the first real run is still pending.
+Built and proven against the live NVR on 2026-09-07 (design:
+`docs/superpowers/specs/2026-09-07-resumable-protect-archive-design.md`).
+
+Measured behaviour of three consecutive runs against `D:\Unifi`:
+
+| Run | Wall clock | Downloaded | Already archived | Export requests |
+| --- | --- | --- | --- | --- |
+| 1 (backfill) | ~1 h | 243 segments, 58.5 GB | 0 | 364 |
+| 2 | 19.6 s | 2 (newly elapsed hours) | 243 | 124 |
+| 3 | **0.35 s** | 0 | 367 | **0** |
+
+Run 3 issued no export requests and no logins at all. That is the property the whole
+design exists for: re-running later costs nothing and re-downloads nothing.
+
+Corruption handling was verified by flipping bits in a segment *without changing its
+size*: `--verify=quick` correctly did not notice, `--verify=hash` reported the exact file
+with both hashes, `verify --repair` marked it, and the next sync re-fetched precisely that
+one segment (366 already archived). `sync --verify=hash` does the same in a single step.
+`verify --level deep` ran ffprobe over all 367 segments and passed.
 
 ## Verified environment
 
@@ -45,8 +61,10 @@ to the address on the UI account. Consequences that are easy to get wrong:
   2026-09-07: the returned JWT's `exp` was 720 h out. So in practice a code is typed about
   once a month, not once a run — which is why caching the token was worth building.
 
-Because the factor is email, **there is no unattended mode**. Scheduling is deliberately
-out of scope; a run is started by hand.
+Because the factor is email, **no run can obtain a *new* token unattended**. But since a
+token lasts 30 days, a scheduled daily run is in fact viable: it works untouched for a
+month and then fails with a clear message until someone runs it once by hand to refresh.
+Nothing is scheduled at present — that was left as the operator's call.
 
 `PROTECT_EMAIL` is set in the environment but **this tool does not use it** — the CLI
 authenticates with `--username`, not an email address.
