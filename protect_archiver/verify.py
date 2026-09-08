@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from protect_archiver.manifest import STATUS_EMPTY
+from protect_archiver.manifest import STATUS_FAILED
 from protect_archiver.manifest import SegmentRecord
 
 
@@ -51,6 +52,12 @@ REASON_MISSING = "missing"
 REASON_SIZE_MISMATCH = "size-mismatch"
 REASON_HASH_MISMATCH = "hash-mismatch"
 REASON_UNDECODABLE = "undecodable"
+
+# A segment that never downloaded successfully has no file, so checking the disk for one
+# says nothing useful. Reporting it as "missing" alongside genuinely damaged files would
+# conflate "this archive is corrupt" with "these hours are queued for another attempt",
+# which are opposite conclusions for the operator.
+REASON_PENDING = "pending re-download"
 
 # Read in 1 MiB blocks: large enough that syscall overhead disappears against disk
 # throughput, small enough not to matter for memory on any machine running this.
@@ -186,5 +193,10 @@ def verify_record(record: SegmentRecord, absolute_path: str, level: str) -> Veri
         # The NVR reported no footage for this hour, so there is no file to check and
         # nothing to re-download.
         return VerifyResult(ok=True, reason=REASON_OK, detail="no footage recorded")
+
+    if record.status == STATUS_FAILED:
+        # Already known bad and already queued for another attempt; there is nothing
+        # verification can add, and nothing for --repair to mark.
+        return VerifyResult(ok=True, reason=REASON_PENDING, detail="awaiting re-download")
 
     return verify_file(absolute_path, record.size, record.sha256, level)

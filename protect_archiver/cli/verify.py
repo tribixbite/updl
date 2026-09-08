@@ -5,16 +5,51 @@ import click
 
 from protect_archiver.cli.base import cli
 from protect_archiver.config import Config
-from protect_archiver.manifest import STATUS_EMPTY
+from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
+from protect_archiver.manifest import SegmentRecord
 from protect_archiver.manifest import describe_counts
 from protect_archiver.utils import cleanup_stale_part_files
 from protect_archiver.verify import LEVEL_HASH
 from protect_archiver.verify import LEVEL_NONE
 from protect_archiver.verify import REASON_OK
+from protect_archiver.verify import REASON_PENDING
 from protect_archiver.verify import VERIFY_LEVELS
 from protect_archiver.verify import sha256_file
 from protect_archiver.verify import verify_record
+
+
+def _store_missing_hash(
+    manifest: ArchiveManifest, record: SegmentRecord, absolute_path: str
+) -> int:
+    """Fill in a hash for a row that has none, returning how many were stored.
+
+    Rows adopted from disk by 'sync --reconcile' carry no hash, which leaves them
+    permanently unverifiable at the hash and deep levels. Only rows that should have a
+    readable file are candidates.
+    """
+    if record.sha256 or record.status != STATUS_OK:
+        return 0
+
+    try:
+        digest = sha256_file(absolute_path)
+    except OSError:
+        # Missing or unreadable; the verification pass classifies it properly, so there
+        # is nothing useful to record here.
+        return 0
+
+    manifest.record(
+        camera_id=record.camera_id,
+        camera_name=record.camera_name,
+        start_ms=record.start_ms,
+        end_ms=record.end_ms,
+        filename=absolute_path,
+        size=record.size,
+        sha256=digest,
+        status=record.status,
+    )
+    record.sha256 = digest
+    return 1
 
 
 @cli.command(
@@ -99,35 +134,20 @@ def verify(
         for record in manifest.iter_segments():
             absolute_path = manifest.absolute_path(record)
 
-            if rehash and not record.sha256 and record.status != STATUS_EMPTY:
-                try:
-                    digest = sha256_file(absolute_path)
-                except OSError:
-                    # The file is missing or unreadable; the verification below will
-                    # classify it properly, so there is nothing to record here.
-                    digest = ""
-                if digest:
-                    manifest.record(
-                        camera_id=record.camera_id,
-                        camera_name=record.camera_name,
-                        start_ms=record.start_ms,
-                        end_ms=record.end_ms,
-                        filename=absolute_path,
-                        size=record.size,
-                        sha256=digest,
-                        status=record.status,
-                    )
-                    record.sha256 = digest
-                    rehashed += 1
+            if rehash:
+                rehashed += _store_missing_hash(manifest, record, absolute_path)
 
             result = verify_record(record, absolute_path, verify_level)
             reasons[result.reason] += 1
 
-            if record.status != STATUS_EMPTY and not record.sha256:
+            if record.status == STATUS_OK and not record.sha256:
                 unhashed += 1
 
             if result.ok:
-                manifest.mark_verified(record)
+                # A row awaiting re-download has no file to have been verified, so
+                # stamping it as verified would be a lie.
+                if result.reason != REASON_PENDING:
+                    manifest.mark_verified(record)
                 continue
 
             failures.append((record, result))
@@ -141,6 +161,14 @@ def verify(
         for reason, count in sorted(reasons.items()):
             label = "intact" if reason == REASON_OK else reason
             click.echo(f"  {count:>8}  {label}")
+
+        pending = reasons.get(REASON_PENDING, 0)
+        if pending:
+            click.echo(
+                f"\n{pending} segment(s) have never downloaded successfully and are already"
+                " queued for another attempt. That is a record of gaps, not damage - run"
+                " 'sync' to retry them."
+            )
 
         if rehashed:
             click.echo(f"\nStored {rehashed} newly computed hash(es)")

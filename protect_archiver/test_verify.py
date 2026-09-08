@@ -3,6 +3,7 @@ import hashlib
 from typing import Any
 
 from protect_archiver.manifest import STATUS_EMPTY
+from protect_archiver.manifest import STATUS_FAILED
 from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import SegmentRecord
 from protect_archiver.verify import LEVEL_HASH
@@ -10,6 +11,7 @@ from protect_archiver.verify import LEVEL_NONE
 from protect_archiver.verify import LEVEL_QUICK
 from protect_archiver.verify import REASON_HASH_MISMATCH
 from protect_archiver.verify import REASON_MISSING
+from protect_archiver.verify import REASON_PENDING
 from protect_archiver.verify import REASON_SIZE_MISMATCH
 from protect_archiver.verify import verify_file
 from protect_archiver.verify import verify_record
@@ -89,6 +91,32 @@ def test_empty_segments_need_no_file(tmp_path: Any) -> None:
     )
 
     assert verify_record(record, str(tmp_path / "missing.mp4"), LEVEL_HASH).ok
+
+
+def test_failed_records_are_pending_not_reported_as_damage(tmp_path: Any) -> None:
+    """A segment that never downloaded has no file, so 'missing' would mislead.
+
+    Reported alongside genuinely corrupt files it would read as archive damage, when it
+    is really a gap already queued for another attempt.
+    """
+    record = SegmentRecord(
+        camera_id="cam1",
+        camera_name="A",
+        start_ms=0,
+        end_ms=1,
+        path="never-downloaded.mp4",
+        size=0,
+        sha256="",
+        status=STATUS_FAILED,
+        downloaded_at="2026-01-01T00:00:00+00:00",
+        verified_at=None,
+    )
+
+    result = verify_record(record, str(tmp_path / "never-downloaded.mp4"), LEVEL_QUICK)
+
+    assert result.ok
+    assert result.reason == REASON_PENDING
+    assert result.reason != REASON_MISSING
 
 
 def test_ok_record_is_checked_against_disk(tmp_path: Any) -> None:
