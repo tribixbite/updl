@@ -5,22 +5,20 @@ Status: approved
 
 ## Goal
 
-Back up UniFi Protect footage from the UDM Pro SE to `D:\Unifi` such that the command
+Back up UniFi Protect footage from the UDM Pro SE to `the archive destination` such that the command
 can be re-run at any future date, downloads nothing it already holds, fills gaps left by
 earlier failures, and can optionally verify that what is on disk is not corrupt.
 
 ## Environment (verified, not assumed)
 
-| Fact | Value | How it was established |
-| --- | --- | --- |
-| NVR | UDM Pro SE, "the NVR", `protect.invalid` | `GET /api/system` → `{"hardware":{"shortname":"UDMPROSE"}}` |
-| Reachability | 2 hops via the UDR at `gateway.invalid` | `tracert`; TCP 443 open; ICMP blocked |
-| Protocol | HTTPS (port 80 301-redirects) | `GET http://protect.invalid/api/system` → 301 |
-| Second console | UDR "a second console", `gateway.invalid` | subnet scan; not in scope |
-| Account | `archiver`, Ubiquiti SSO, MFA required | login → 499 `MFA_AUTH_REQUIRED` |
-| Second factor | `type: "email"` — no TOTP seed exists | `authenticators[0].type` in the 499 body |
-| MFA challenge cookie | `UBIC_2FA`, **10 minute** lifetime | decoded JWT `exp` claim |
-| Archive volume | `D:\`, 5.2 TB free of 7.3 TB | `df -h /d` |
+Every environmental fact was established by probing rather than assumption: the console
+model, whether it was reachable and whether ICMP was filtered (it was, so TCP had to be
+used to test reachability), the protocol and port, the account's authentication mode,
+and free space on the destination volume. Getting any of these wrong would have wasted
+far more time than checking cost.
+
+Specific addresses, account names and camera identifiers are intentionally omitted from
+this repository, which is public.
 
 ## Defects being fixed
 
@@ -114,4 +112,4 @@ stored token has expired. Token persistence exists to make that rare rather than
 
 ## Out of scope
 
-Retention/pruning of `D:\Unifi`. Deleting footage should be a deliberate, separate decision.
+Retention/pruning of `the archive destination`. Deleting footage should be a deliberate, separate decision.

@@ -60,7 +60,7 @@ def test_tokens_are_scoped_to_host_and_user(tmp_path: Any) -> None:
     token = make_token(int(time.time()) + 3600)
     store.save("protect.invalid", 443, "someone", token)
 
-    assert store.load("gateway.invalid", 443, "someone") is None
+    assert store.load("other.invalid", 443, "someone") is None
     assert store.load("protect.invalid", 443, "someone-else") is None
     assert store.load("protect.invalid", 7443, "someone") is None
 

@@ -1,268 +1,142 @@
 # updl — working context
 
-## The task
+Resumable, verifiable archiver for UniFi Protect footage. A fork of
+`danielfernau/unifi-protect-video-downloader` with upstream history preserved.
 
-Back up UniFi Protect footage to a local archive at `D:\Unifi` on this Windows box, in a
-way that can be re-run at any future date without re-downloading anything it already
-holds, and that can optionally prove what is on disk is not corrupt.
+Deployment-specific details — console address, account, camera inventory, archive path —
+are deliberately **not** recorded here, because this repository is public. Keep them in a
+local, untracked note or in the environment.
 
-Built and proven against the live NVR on 2026-09-07 (design:
-`docs/superpowers/specs/2026-09-07-resumable-protect-archive-design.md`).
+## Design in one paragraph
 
-Measured behaviour of three consecutive runs against `D:\Unifi`:
+The unit of work is one hour of one camera's recording. Every run sweeps the whole window
+the NVR still holds and asks a SQLite manifest about each hour in it, so a run started
+weeks later downloads exactly the hours that are missing or damaged. Sweeping rather than
+resuming from a cursor is also what keeps the archive correct as footage ages out:
+`recording_start` moves forward with the NVR's own retention, so the window shrinks to
+what is still fetchable while everything already archived stays put.
 
-| Run | Wall clock | Downloaded | Already archived | Export requests |
-| --- | --- | --- | --- | --- |
-| 1 (backfill) | ~1 h | 243 segments, 58.5 GB | 0 | 364 |
-| 2 | 19.6 s | 2 (newly elapsed hours) | 243 | 124 |
-| 3 | **0.35 s** | 0 | 367 | **0** |
+## The manifest
 
-Run 3 issued no export requests and no logins at all. That is the property the whole
-design exists for: re-running later costs nothing and re-downloads nothing.
-
-Corruption handling was verified by flipping bits in a segment *without changing its
-size*: `--verify=quick` correctly did not notice, `--verify=hash` reported the exact file
-with both hashes, `verify --repair` marked it, and the next sync re-fetched precisely that
-one segment (366 already archived). `sync --verify=hash` does the same in a single step.
-`verify --level deep` ran ffprobe over all 367 segments and passed.
-
-## Verified environment
-
-Established by probing, not assumed. Re-check before trusting any of it.
-
-| Fact | Value |
-| --- | --- |
-| NVR | UDM Pro SE, "the NVR", **protect.invalid** |
-| Reachability | 2 hops from this box, routed via the UDR at gateway.invalid. **ICMP is blocked** — `ping` fails while TCP 443 is open, so test with `Test-NetConnection -Port 443` |
-| Protocol | HTTPS. Port 80 301-redirects, so the default `https` protocol is right |
-| Second console | UDR "a second console", gateway.invalid — *not* the one with the cameras |
-| Account | `archiver`, Ubiquiti SSO |
-| Archive | `D:\Unifi`, 5.2 TB free of 7.3 TB |
-
-## Authentication — the thing that shapes everything else
-
-`archiver` is an **SSO account with an email second factor**. A credentials-only
-`POST /api/auth/login` returns HTTP **499** with `MFA_AUTH_REQUIRED`; the code is emailed
-to the address on the UI account. Consequences that are easy to get wrong:
-
-- **There is no TOTP seed**, because the enrolled authenticator is `type: "email"`. Nothing
-  can generate these codes offline. Storing a shared secret is not an option here.
-- **`UBIC_2FA` is a 10-minute challenge cookie, not a remembered-device cookie** (decoded
-  from its own JWT `exp`). It cannot be reused to skip 2FA on a later run.
-- **`/api/auth/login` is rate limited.** Do not loop on it while debugging.
-- Therefore **the session token is cached between runs** in
-  `%LOCALAPPDATA%\protect-archiver\sessions.json` (override with `PROTECT_SESSION_STORE`,
-  written `0o600`). This is what makes "type the code every time" actually mean
-  "occasionally". `--no-session-store` disables it.
-- **A code can be supplied with `--mfa-code` / `PROTECT_MFA_CODE`**, otherwise it is
-  prompted for. With no terminal attached it fails with an explanation rather than hanging,
-  which is the only sane behaviour for a piped or scheduled run.
-- **`rememberMe: true` yields a 30-day session token.** Measured against this UDM Pro SE on
-  2026-09-07: the returned JWT's `exp` was 720 h out. So in practice a code is typed about
-  once a month, not once a run — which is why caching the token was worth building.
-
-Because the factor is email, **no run can obtain a *new* token unattended**. But since a
-token lasts 30 days, a scheduled daily run is in fact viable: it works untouched for a
-month and then fails with a clear message until someone runs it once by hand to refresh.
-Nothing is scheduled at present — that was left as the operator's call.
-
-`PROTECT_EMAIL` is set in the environment but **this tool does not use it** — the CLI
-authenticates with `--username`, not an email address.
-
-## The cameras, and what they cost to archive
-
-Measured on the first real run, 2026-09-07. **Segment size varies by two orders of
-magnitude depending on the camera's recording mode**, so do not estimate the archive from
-a segment count alone.
-
-**All four cameras are in `detections` recording mode**, not continuous — so quiet hours
-genuinely contain nothing, which is why ~20 % of hours settle as `empty`.
-
-| Camera | ID | Per hour | NVR holds |
-| --- | --- | --- | --- |
-| G4 Instant | `cam00000000000000000001` | ~424 MB | 44.02 GB |
-| G4 Instant | `cam00000000000000000003` | ~200 MB | 21.47 GB |
-| G4 Doorbell Pro | `cam00000000000000000002` | ~6 MB | 1.07 GB |
-| G4 Instant | `cam00000000000000000004` | — | disconnected since 2026-05-02 |
-
-The two "G4 Instant" cameras share a display name; the filesystem-safe name disambiguates
-them with the last four characters of the camera id (`G4 Instant (e745)` vs
-`G4 Instant (3fef)`), so they do not collide on disk.
-
-Throughput over the LAN was ~18 MB/s, so a full backfill takes an hour or two.
-
-## The NVR stores three streams; this tool archives one
-
-Do not compare the archive's size against the console's reported disk usage — they measure
-different things. From `nvr.storageStats.recordingDistribution` on 2026-09-07:
-
-| Stream | On the NVR | Archived by this tool |
-| --- | --- | --- |
-| `hq` (full resolution) | 66.57 GB | yes — 63.06 GB, 94.7 % |
-| `timelapse` | 26.84 GB | no |
-| `lq` (low resolution) | 7.52 GB | no |
-| **total recording space** | **97.90 GB of 99.85 GB** | |
-
-So "about 90 GB on the device" and "63 GB archived" are both correct and not in conflict.
-The residual ~5 % of `hq` is the hour still being written plus the difference between the
-NVR's stored segments and the remuxed MP4 that export produces.
-
-**The other two streams are exportable, they are simply not requested.** Verified by
-probing a 5-minute range: `&channel=2` returns the low-resolution copy and `&type=timelapse`
-returns the timelapse, against ~49 MB for the default `hq`. They are a lower-resolution
-copy and a derived product of the same events, so `hq` is the right target for a footage
-backup — but adding them is a real option, not an impossibility. (An unrecognised value
-such as `&channel=timelapse` makes the export hang rather than error, so validate before
-passing anything through.)
-
-## The NVR is 98 % full — this constrains how often the sync must run
-
-`recordingSpace` was 97.90 GB used of 99.85 GB, leaving 1.95 GB, and `recording_start` sits
-only 4–6 days back. Footage is therefore being evicted continuously. **Anything not
-archived within that window is gone permanently**, so the sync has to run more often than
-the retention window, not merely "occasionally". This is the strongest argument for
-scheduling a daily run.
-
-A consequence worth remembering: **an hour of a detection-only camera decodes to ~30 s of
-video**, not 3600 s. `--verify=deep` therefore only asserts that ffprobe reports a positive
-duration; asserting a duration near 3600 would fail every doorbell segment.
-
-## "No footage in that range" is an HTTP 404 carrying `{"error": 502}`
-
-Neither number means what it looks like, and this is the single most confusing thing the
-export endpoint does. Established on 2026-09-07 by probing a range 30 days in the future
-and one long before retention began — **both** return exactly `404 {"error": 502,
-"operationId": N}`, while the hours either side of a real gap return 200 and video. It
-reproduces identically on every attempt, so it is not transient.
-
-The first live run hit this on 11 hours where a camera had been offline. It matters which
-way it is classified:
-
-- as a **failure**, every one of those hours is re-requested on every future run forever,
-  and every run ends by reporting failures no amount of retrying can fix;
-- as **empty**, it settles once and is never asked for again, and the gap stays visible in
-  the manifest as a deliberate record rather than as an error.
-
-`_reports_no_footage` in `downloader/download_file.py` matches that exact pairing and
-nothing looser — a bare 404, or a 404 with any other error code, is still a real failure,
-because a malformed request produces one too. Rows already recorded as `failed` heal
-themselves: the next run retries them, gets this response, and rewrites them as `empty`.
-
-## Running it
-
-```powershell
-# D:\Unifi must already exist: DEST is click.Path(exists=True), checked before anything runs
-protect-archiver sync D:\Unifi --address protect.invalid
-
-# or the wrapper, which adds a single-instance lock, a log, and a volume-mounted check
-.\scripts\protect-sync.ps1
-```
-
-Credentials come from `PROTECT_USERNAME` / `PROTECT_PASSWORD` in the environment. Never
-pass a password as an argument — it is visible to every other process on the machine.
-
-Useful commands:
-
-- **`sync DEST`** — the incremental mirror. Sweeps each camera's whole retention window
-  every run and downloads only what is missing or damaged.
-- **`verify DEST`** — audits the archive **offline**, never contacting the NVR. `--repair`
-  marks bad segments for the next sync; `--rehash` fills in hashes for adopted rows.
-- **`download DEST`** — explicit `--start`/`--end` range, for a one-off. Note it does *not*
-  write to the manifest; only `sync` does.
-- **`events DEST`** — motion/smart-detect clips only.
-
-## How re-running without re-downloading works
-
-Upstream tracked progress in `sync.state`, one cursor per camera. That cannot express what
-this job needs, so a **SQLite manifest** at `<DEST>\.protect-archive\manifest.db` is now
-the authority. One row per hour per camera, keyed on `(camera_id, start_ms)`, recording
-path, size, SHA-256 and a status of `ok` / `empty` / `failed`.
+`DEST/.protect-archive/manifest.db`, one row per `(camera_id, start_ms)`, holding path,
+size, SHA-256 and a status of `ok` / `empty` / `failed`.
 
 - `empty` records an hour the NVR had no footage for, so it is never re-requested and real
   gaps stay auditable.
-- `failed` is what makes a *later* run retry precisely the hours that broke — the cursor
-  used to advance straight past them, making a gap permanent.
+- `failed` is what makes a later run retry precisely the hours that broke — the upstream
+  statefile cursor advanced straight past them, making a gap permanent.
 - `sync.state` is still written for upstream compatibility but no longer gates downloads.
-- `--ignore-state` keeps its documented meaning of "re-download everything" by ignoring the
-  manifest too.
+- `--ignore-state` keeps its documented meaning of "re-download everything" by ignoring
+  the manifest too.
 
-Verification levels, applied before skipping anything (`--verify`):
+The end of a segment is stored but deliberately **not** part of its identity: a sync always
+requests hour-aligned ranges, and a two-field key is what lets an archive whose manifest was
+lost be rebuilt from the filenames on disk (`sync --reconcile`).
 
-| level | check | cost |
-| --- | --- | --- |
-| `none` | trust the manifest | touches no files |
-| `quick` *(default)* | exists, and size matches | one `stat` per segment |
-| `hash` | SHA-256 recomputed | reads the whole archive |
-| `deep` | + ffprobe decodes it | degrades to `hash` with a warning if ffprobe is absent |
+SQLite rather than JSON because a four-camera year is ~35k rows per camera and rewriting a
+JSON document once per segment is quadratic.
 
-If the manifest is ever lost, **`sync --reconcile`** adopts what is on disk by parsing the
-filenames back into camera and start time, rather than re-downloading terabytes. Adopted
-rows carry no hash until `verify --rehash` is run.
+## Protect API behaviour that is easy to get wrong
 
-## Defects fixed in this fork (do not "simplify" these back out)
+**"No footage in this range" is an HTTP 404 carrying `{"error": 502}`.** Neither number
+means what it looks like. Established by probing a range far in the future and one long
+before retention began — both return exactly that, while the hours either side of a real
+gap return 200 and video, reproducibly. Classified as a failure, every hour a camera was
+offline would be re-requested forever and every run would end reporting failures nothing
+can fix. `_reports_no_footage` matches that exact pairing and nothing looser: a bare 404, or
+a 404 with any other error code, is still a real failure, because a malformed request
+produces one too.
 
-Each of these was load-bearing for a re-runnable backup:
+**Audio is omitted silently for an under-permissioned account.** If the Protect account
+lacks `readmedia` on a camera, the export still returns 200 with intact video and no audio
+track. Nothing fails; size and hash are self-consistent; the file decodes. The only symptom
+is silence on playback, so an archive can accumulate for weeks before anyone notices. This
+was observed for real: an entire multi-gigabyte archive was silent because the account's
+only camera grant pointed at a camera id that no longer existed on the NVR. Granting camera
+media permission fixed it with no code change. `verify --require-audio` exists to catch it.
 
-1. **`download_file` never retried HTTP errors.** A non-200 incremented `files_failed` then
-   fell into the `try/else: return`; only `RequestException` ever reached the retry loop. A
-   transient 500 from the export endpoint became a permanent gap. Now: exponential backoff
-   on 5xx/429/408, no retry on other 4xx, 401 re-auths once without spending a retry.
-2. **Writes were not atomic.** Content streamed straight into the final `.mp4`, so an
-   interrupted run left a truncated file indistinguishable from a complete one. Now written
-   to `.part` and `os.replace`d on success, with stale `.part` files swept at startup.
-3. **`sync` never passed `skip_existing_files`** (`cli/sync.py` simply omitted it).
-4. **`get_camera_list` used `datetime.utcfromtimestamp`** for `recording_start` while the
-   rest of the codebase uses naive *local* time — `interval.timestamp()` reads a naive value
-   as local. Every camera's first sync therefore started a whole UTC offset away from the
-   real recording start. (Also removed in Python 3.12.)
-5. **A camera reporting `datetime.min`** (never recorded) would have swept from year 1,
-   expanding to millions of hourly requests. Now skipped with a warning.
-6. **`format_bytes` used integer division**, so 1536 bytes printed as `1.0 kb`.
+**The export endpoint dates each MP4 at the moment of export**, not when the footage was
+recorded, so files must be re-stamped or the archive sorts by collection date.
 
-## Gotchas
+**Cameras in `detections` recording mode leave genuinely empty hours**, and an hour of such
+a camera can decode to a few seconds of video. `--verify=deep` therefore only asserts a
+positive duration; asserting anything near 3600 s would fail every such segment.
 
-- **This machine writes CRLF by default; the repo is LF.** A `pathlib.write_text()` in a
-  helper script will silently rewrite a whole file's line endings and produce a diff of
-  hundreds of lines. Check `git diff --stat` for implausible line counts, and normalise
-  with a bytes-level `b"\r\n" -> b"\n"` pass before committing.
-- `pyproject.toml` sets black's `experimental_string_processing`, which modern black
-  rejects as an invalid key (pre-commit pins black 22.1.0, where it was valid). Harmless,
-  but it means local black and the hook can format strings differently.
-- `mypy.ini` overrides `[tool.mypy]` in `pyproject.toml` and sets
-  `disallow_untyped_defs = True`, so every function needs annotations.
-- `VERIFY_SSL` defaults to false and the CLI silences urllib3's `InsecureRequestWarning` —
-  expected for a self-signed NVR certificate on the LAN, not a bug.
-- Tests must never touch the real session store; `conftest.py` has an autouse fixture
-  pointing `PROTECT_SESSION_STORE` at a tmp path. Keep it.
+**Segment size varies by orders of magnitude** between continuous and detection-only
+cameras, so never estimate an archive's size from a segment count.
+
+**The console stores more than the stream this tool fetches.** `nvr.storageStats.recording
+Distribution` splits into `hq`, `lq` and `timelapse`; `/video/export` serves `hq`. Comparing
+the archive against the console's total disk usage will look like a large shortfall when
+nothing is missing. The other streams *are* exportable (`&channel=2`, `&type=timelapse`) —
+they are simply not requested. An unrecognised value such as `&channel=timelapse` makes the
+export hang rather than error, so validate before passing anything through.
+
+## Authentication
+
+Consoles backed by Ubiquiti SSO answer a credentials-only login with HTTP **499** and
+`MFA_AUTH_REQUIRED`. The `UBIC_2FA` cookie returned with it is a short-lived challenge
+(~10 minutes), not a remembered-device cookie, and `/api/auth/login` is rate limited — so
+the session token is cached per user in `%LOCALAPPDATA%\protect-archiver\sessions.json`
+(override with `PROTECT_SESSION_STORE`, written `0o600`). `rememberMe: true` yields a
+long-lived token, which is what makes repeat runs practical.
+
+Where the second factor is delivered by email there is no shared secret, so no run can
+obtain a *new* token unattended; an existing one lasts long enough that a scheduled run
+works until it expires. With no terminal attached the code prompt fails with an explanation
+rather than hanging.
+
+The **official** Protect integration API (`developer.ui.com/protect/<version>/openapi.json`)
+has no video-export endpoint at all — only live `rtsps-stream` and snapshots. `/video/export`
+is the private API, which is why behaviour has to be established by probing.
+
+## Defects fixed in this fork — do not "simplify" these back out
+
+1. `download_file` never retried HTTP errors: a non-200 fell into `try/else: return`, so
+   only `RequestException` reached the retry loop and a transient 500 became a permanent
+   gap. Now backs off on 5xx/429/408, does not retry other 4xx, re-auths once on 401.
+2. Downloads were not atomic, so an interrupted run left a truncated MP4 indistinguishable
+   from a complete one. Now `.part` + `os.replace`, with stale partials swept at startup.
+3. `sync` never passed `skip_existing_files`.
+4. `get_camera_list` read `recording_start` as naive UTC while the rest of the code uses
+   naive local, shifting every camera's first sync by the UTC offset.
+5. A camera reporting `datetime.min` would have swept from year 1.
+6. `format_bytes` used integer division, printing 1536 bytes as "1.0 kb".
 
 ## Packaging
 
-Published to PyPI as **`updl`**; the CLI command is `updl`, with `protect-archiver` kept as
-an alias so existing scheduled tasks keep working. **The import package stays
-`protect_archiver`** (the `pillow`/`PIL` pattern) specifically so fixes can still be merged
-from upstream rather than hand-ported — do not rename it without accepting that cost.
+Published as **`updl`**; CLI command `updl`, with `protect-archiver` kept as an alias. **The
+import package stays `protect_archiver`** (the `pillow`/`PIL` pattern) so fixes can still be
+merged from upstream rather than hand-ported — do not rename it without accepting that cost.
 
 Release: bump `version` in `pyproject.toml`, tag `vX.Y.Z`, publish a GitHub Release.
-`.github/workflows/publish.yml` runs the tests, refuses a tag that disagrees with the
-project version, and uploads via **PyPI Trusted Publishing (OIDC)** — there is no API token
-in the repo. `workflow_dispatch` publishes to TestPyPI for a dry run. The trusted publisher
-must be registered once at pypi.org before the first real release.
+`.github/workflows/publish.yml` runs tests/mypy/flake8, refuses a tag that disagrees with
+the project version, and uploads via PyPI Trusted Publishing (OIDC) — no API token in the
+repo. `workflow_dispatch` targets TestPyPI for a dry run.
 
-Two things were retargeted away from upstream and must stay that way: the Docker Hub
-namespace (`dockerbuild.yml` pushed to `unifitoolbox/protect-archiver` on every `v*` tag
-and was **deleted**; the `Makefile` now targets `tribixbite/updl` and no longer pushes as
-part of `all`).
+`dockerbuild.yml` was deleted because it published to the upstream project's Docker Hub
+namespace on every `v*` tag; the `Makefile` targets this fork's namespace and does not push
+as part of `all`.
 
-`.gitignore` excludes `*.png` because investigating the Protect UI leaves screenshots of
-live camera footage in the working tree.
+## Gotchas for anyone working here
 
-## Repo etiquette
+- **Windows writes CRLF by default; this repo is LF.** A `pathlib.write_text()` in a helper
+  script silently rewrites a whole file's line endings and produces a diff of hundreds of
+  lines. Check `git diff --stat` for implausible counts and normalise with a bytes-level
+  `b"\r\n" -> b"\n"` pass before committing.
+- `mypy.ini` overrides `[tool.mypy]` in `pyproject.toml` and sets `disallow_untyped_defs`,
+  so every function needs annotations.
+- `VERIFY_SSL` defaults to false and the CLI silences urllib3's `InsecureRequestWarning` —
+  expected for a self-signed NVR certificate on a LAN, not a bug.
+- Tests must never touch the real session store; `conftest.py` has an autouse fixture
+  pointing `PROTECT_SESSION_STORE` at a tmp path. Keep it.
+- Test fixtures must not carry real account UUIDs, hostnames or camera ids. Use
+  `*.invalid` hostnames and obviously-synthetic identifiers.
+- `.gitignore` excludes `*.png` because investigating the Protect UI leaves screenshots of
+  live camera footage in the working tree.
 
-A fork of `danielfernau/unifi-protect-video-downloader` with upstream history preserved, so
-new logic lives in **new modules** (`manifest.py`, `verify.py`, `reconcile.py`,
-`session_store.py`, `cli/verify.py`) and edits to upstream files are kept to small, obvious
-hunks that survive a merge. Prefer that shape for anything added later. MIT licence and the
-original copyright notice are retained; `NOTICE` records what this fork changed.
+New logic goes in **new modules** and edits to upstream files stay small and obvious, so
+future merges from upstream remain possible.
 
 Checks before committing:
 

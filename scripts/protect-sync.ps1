@@ -3,21 +3,21 @@
     Run a UniFi Protect archive sync into a local destination.
 
 .DESCRIPTION
-    Wraps `protect-archiver sync` with the things a repeatable backup needs and the CLI
+    Wraps `updl sync` with the things a repeatable backup needs and the CLI
     does not provide on its own: a single-instance lock, a timestamped log, and a check
     that the destination volume is actually mounted before anything is written to it.
 
-    The account on this system is backed by Ubiquiti SSO with an email second factor, so
-    there is no unattended mode: when the cached session token has expired the run stops
-    and asks for a code. The token is cached between runs, so that is occasional rather
-    than every time. Run this from an interactive terminal.
+    Where the Protect account is backed by Ubiquiti SSO with a second factor, a run whose
+    cached session token has expired stops and asks for a code. The token is cached between
+    runs, so that is occasional rather than every time -- but run this from an interactive
+    terminal unless you know the cached token is still valid.
 
     Credentials come from the environment, never from arguments -- an argument is visible
     to every other process on the machine via the command line.
 
 .PARAMETER Destination
     Archive root. Must already exist: the CLI declares it as an existing path and fails
-    argument parsing otherwise.
+    argument parsing otherwise. Required.
 
 .PARAMETER Verify
     How thoroughly to check files the archive already holds before skipping them.
@@ -32,18 +32,19 @@
     version, to avoid re-downloading what is already held.
 
 .EXAMPLE
-    .\scripts\protect-sync.ps1
-    Normal incremental run against the defaults below.
+    .\scripts\protect-sync.ps1 -Destination D:\Protect
+    Normal incremental run.
 
 .EXAMPLE
-    .\scripts\protect-sync.ps1 -Verify hash
+    .\scripts\protect-sync.ps1 -Destination D:\Protect -Verify hash
     Re-hash everything already archived and re-download anything that has rotted.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Destination = 'D:\Unifi',
-    [string]$Address = $(if ($env:PROTECT_ADDRESS) { $env:PROTECT_ADDRESS } else { 'protect.invalid' }),
+    [Parameter(Mandatory = $true)]
+    [string]$Destination,
+    [string]$Address = $env:PROTECT_ADDRESS,
     [ValidateSet('none', 'quick', 'hash', 'deep')]
     [string]$Verify = 'quick',
     [switch]$Reconcile,
@@ -63,15 +64,19 @@ function Write-Log {
 
 # -- preconditions ------------------------------------------------------------
 
+if (-not $Address) {
+    throw "No console address. Pass -Address or set PROTECT_ADDRESS."
+}
+
 foreach ($name in @('PROTECT_USERNAME', 'PROTECT_PASSWORD')) {
     if (-not (Get-Item "Env:$name" -ErrorAction SilentlyContinue)) {
         throw "$name is not set. Set it for your user account before running this script."
     }
 }
 
-# A missing destination is the failure mode worth catching early: if D: is an external or
-# network volume that did not mount, the CLI would otherwise refuse at argument parsing
-# with a message that does not say why.
+# A missing destination is the failure mode worth catching early: if the archive lives on
+# an external or network volume that did not mount, the CLI would otherwise refuse at
+# argument parsing with a message that does not say why.
 if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
     throw "Destination '$Destination' does not exist or is not a directory. If it is on a removable or network volume, check that the volume is mounted."
 }
@@ -119,17 +124,17 @@ try {
     )
     if ($Reconcile) { $archiverArguments += '--reconcile' }
 
-    Write-Log "Running: protect-archiver $($archiverArguments -join ' ')"
+    Write-Log "Running: updl $($archiverArguments -join ' ')"
     Write-Log 'If the cached session has expired you will be asked for a multi-factor code.'
 
     # Not redirected to a file: the multi-factor prompt has to reach the terminal.
-    & protect-archiver @archiverArguments
+    & updl @archiverArguments
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -eq 0) {
         Write-Log 'Sync completed.'
     } else {
-        Write-Log "Sync exited with code $exitCode. Segments recorded as failed will be retried on the next run; 'protect-archiver verify $Destination' shows the archive's current state." 'WARN'
+        Write-Log "Sync exited with code $exitCode. Segments recorded as failed will be retried on the next run; 'updl verify $Destination' shows the archive's current state." 'WARN'
     }
     exit $exitCode
 } finally {
