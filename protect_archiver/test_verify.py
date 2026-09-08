@@ -2,6 +2,8 @@ import hashlib
 
 from typing import Any
 
+import pytest
+
 from protect_archiver.manifest import STATUS_EMPTY
 from protect_archiver.manifest import STATUS_FAILED
 from protect_archiver.manifest import STATUS_OK
@@ -11,6 +13,7 @@ from protect_archiver.verify import LEVEL_NONE
 from protect_archiver.verify import LEVEL_QUICK
 from protect_archiver.verify import REASON_HASH_MISMATCH
 from protect_archiver.verify import REASON_MISSING
+from protect_archiver.verify import REASON_NO_AUDIO
 from protect_archiver.verify import REASON_PENDING
 from protect_archiver.verify import REASON_SIZE_MISMATCH
 from protect_archiver.verify import verify_file
@@ -137,3 +140,45 @@ def test_ok_record_is_checked_against_disk(tmp_path: Any) -> None:
 
     assert not result.ok
     assert result.reason == REASON_MISSING
+
+
+def test_audio_check_flags_a_silent_file(tmp_path: Any, monkeypatch: Any) -> None:
+    """Protect omits audio for an account without 'readmedia', silently.
+
+    The file is intact by every other measure -- right size, right hash, decodes fine --
+    so only inspecting the streams catches it.
+    """
+    path = write_clip(tmp_path)
+    monkeypatch.setattr("protect_archiver.verify.has_audio_stream", lambda _: False)
+
+    result = verify_file(path, len(CONTENT), DIGEST, LEVEL_QUICK, require_audio=True)
+
+    assert not result.ok
+    assert result.reason == REASON_NO_AUDIO
+
+
+def test_audio_check_passes_a_file_with_audio(tmp_path: Any, monkeypatch: Any) -> None:
+    path = write_clip(tmp_path)
+    monkeypatch.setattr("protect_archiver.verify.has_audio_stream", lambda _: True)
+
+    assert verify_file(path, len(CONTENT), DIGEST, LEVEL_QUICK, require_audio=True).ok
+
+
+def test_audio_check_is_skipped_when_ffprobe_cannot_answer(tmp_path: Any, monkeypatch: Any) -> None:
+    """Without ffprobe the check must not condemn every file in the archive."""
+    path = write_clip(tmp_path)
+    monkeypatch.setattr("protect_archiver.verify.has_audio_stream", lambda _: None)
+
+    assert verify_file(path, len(CONTENT), DIGEST, LEVEL_QUICK, require_audio=True).ok
+
+
+def test_audio_check_does_not_force_hashing_at_quick_level(tmp_path: Any, monkeypatch: Any) -> None:
+    """'quick --require-audio' must stay quick: headers only, not every byte."""
+    path = write_clip(tmp_path)
+    monkeypatch.setattr("protect_archiver.verify.has_audio_stream", lambda _: True)
+    monkeypatch.setattr(
+        "protect_archiver.verify.sha256_file",
+        lambda _: pytest.fail("quick level must not hash the file"),
+    )
+
+    assert verify_file(path, len(CONTENT), DIGEST, LEVEL_QUICK, require_audio=True).ok

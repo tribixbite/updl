@@ -53,6 +53,13 @@ REASON_SIZE_MISMATCH = "size-mismatch"
 REASON_HASH_MISMATCH = "hash-mismatch"
 REASON_UNDECODABLE = "undecodable"
 
+# A segment whose camera records audio but whose file has none. This is not corruption:
+# it is what UniFi Protect returns to an account lacking 'readmedia' on the camera. The
+# export succeeds, the video is intact, and the audio is simply absent -- so nothing
+# short of inspecting the streams notices, and an archive can accumulate for weeks
+# before anyone plays a clip and finds it silent.
+REASON_NO_AUDIO = "no-audio"
+
 # A segment that never downloaded successfully has no file, so checking the disk for one
 # says nothing useful. Reporting it as "missing" alongside genuinely damaged files would
 # conflate "this archive is corrupt" with "these hours are queued for another attempt",
@@ -126,6 +133,35 @@ def probe_duration_seconds(path: str) -> Optional[float]:
         return None
 
 
+def has_audio_stream(path: str) -> Optional[bool]:
+    """Whether the file carries an audio track, or None if that cannot be determined."""
+    if not ffprobe_available():
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=FFPROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return "audio" in completed.stdout
+
+
 def _deep_check(path: str) -> VerifyResult:
     """Confirm the container actually decodes, degrading gracefully without ffprobe."""
     global _ffprobe_warning_issued
@@ -147,7 +183,13 @@ def _deep_check(path: str) -> VerifyResult:
     return VerifyResult(ok=True, reason=REASON_OK)
 
 
-def verify_file(path: str, expected_size: int, expected_sha256: str, level: str) -> VerifyResult:
+def verify_file(
+    path: str,
+    expected_size: int,
+    expected_sha256: str,
+    level: str,
+    require_audio: bool = False,
+) -> VerifyResult:
     """Check one file on disk against what the manifest says it should be."""
     if level == LEVEL_NONE:
         # Explicitly asked not to look at the disk at all.
@@ -162,6 +204,13 @@ def verify_file(path: str, expected_size: int, expected_sha256: str, level: str)
             ok=False,
             reason=REASON_SIZE_MISMATCH,
             detail=f"expected {expected_size} bytes, found {actual_size}",
+        )
+
+    # Checked before hashing so that 'quick --require-audio' reads only headers rather
+    # than every byte of the archive.
+    if require_audio and has_audio_stream(path) is False:
+        return VerifyResult(
+            ok=False, reason=REASON_NO_AUDIO, detail="camera records audio, file has none"
         )
 
     if level == LEVEL_QUICK:
@@ -187,7 +236,12 @@ def verify_file(path: str, expected_size: int, expected_sha256: str, level: str)
     return VerifyResult(ok=True, reason=REASON_OK)
 
 
-def verify_record(record: SegmentRecord, absolute_path: str, level: str) -> VerifyResult:
+def verify_record(
+    record: SegmentRecord,
+    absolute_path: str,
+    level: str,
+    require_audio: bool = False,
+) -> VerifyResult:
     """Check one manifest row, accounting for rows that intentionally have no file."""
     if record.status == STATUS_EMPTY:
         # The NVR reported no footage for this hour, so there is no file to check and
@@ -199,4 +253,4 @@ def verify_record(record: SegmentRecord, absolute_path: str, level: str) -> Veri
         # verification can add, and nothing for --repair to mark.
         return VerifyResult(ok=True, reason=REASON_PENDING, detail="awaiting re-download")
 
-    return verify_file(absolute_path, record.size, record.sha256, level)
+    return verify_file(absolute_path, record.size, record.sha256, level, require_audio)

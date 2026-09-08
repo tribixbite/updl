@@ -109,6 +109,18 @@ def _apply_recorded_time(record: SegmentRecord, absolute_path: str) -> int:
     ),
 )
 @click.option(
+    "--require-audio",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help=(
+        "Flag segments that have no audio track. UniFi Protect silently omits audio for "
+        "an account without 'readmedia' permission on the camera, so an archive can look "
+        "complete while every clip is silent. Needs ffprobe. Combine with --repair to "
+        "re-fetch them."
+    ),
+)
+@click.option(
     "--fix-timestamps",
     is_flag=True,
     default=False,
@@ -132,6 +144,7 @@ def verify(
     verify_level: str,
     repair: bool,
     rehash: bool,
+    require_audio: bool,
     fix_timestamps: bool,
     clean_partials: bool,
 ) -> None:
@@ -169,7 +182,7 @@ def verify(
             if fix_timestamps and record.status == STATUS_OK:
                 retimed += _apply_recorded_time(record, absolute_path)
 
-            result = verify_record(record, absolute_path, verify_level)
+            result = verify_record(record, absolute_path, verify_level, require_audio)
             reasons[result.reason] += 1
 
             if record.status == STATUS_OK and not record.sha256:

@@ -27,6 +27,7 @@ def _already_archived(
     settled: Set[SegmentKey],
     key: SegmentKey,
     verify_level: str,
+    require_audio: bool = False,
 ) -> bool:
     """Decide whether a segment can be skipped without contacting the NVR.
 
@@ -43,7 +44,7 @@ def _already_archived(
         # safe reading of an inconsistent index.
         return False
 
-    result = verify_record(record, manifest.absolute_path(record), verify_level)
+    result = verify_record(record, manifest.absolute_path(record), verify_level, require_audio)
     if result.ok:
         return True
 
@@ -61,6 +62,7 @@ def download_footage(
     manifest: Optional[ArchiveManifest] = None,
     settled: Optional[Set[SegmentKey]] = None,
     verify_level: str = LEVEL_QUICK,
+    require_audio: bool = False,
 ) -> None:
     # make camera name safe for use in file name
     camera_name_fs_safe = make_camera_name_fs_safe(camera)
@@ -85,7 +87,7 @@ def download_footage(
         # segments leave no trace on disk.
         segment_key: SegmentKey = (camera.id, js_timestamp_range_start)
         if manifest is not None and _already_archived(
-            manifest, settled_keys, segment_key, verify_level
+            manifest, settled_keys, segment_key, verify_level, require_audio
         ):
             logging.debug(
                 f"Segment {interval_start} - {interval_end} for '{camera.name}' is already"
