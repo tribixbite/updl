@@ -34,26 +34,52 @@ Python 3.10+. `ffprobe` (from FFmpeg) is optional and only needed for `--verify=
 
 ## Quick start
 
+The destination must already exist. Then, on a new machine:
+
 ```console
-# The destination must already exist.
-mkdir /srv/protect
-
-export PROTECT_ADDRESS=protect.invalid
-export PROTECT_USERNAME=archiver
-export PROTECT_PASSWORD=...
-
-updl sync /srv/protect
+updl -a 192.168.1.1 -u archiver -p '...' -d /srv/protect
 ```
 
-Every option has a `PROTECT_*` environment variable. Use those rather than command-line
-flags for credentials — an argument is visible to every other process on the machine.
+If the account uses multi-factor authentication you are prompted for a code once. The
+session token is cached, so you are not asked again until it expires.
+
+**Every run after that needs no arguments at all:**
+
+```console
+updl
+```
+
+The console address, account and destination are remembered from the last successful run.
+Your password is **never** written to disk — it is asked for again only when the cached
+token expires.
+
+Prefer the environment to flags for the password, since a command-line argument is visible
+to every other process on the machine:
+
+```console
+export PROTECT_PASSWORD='...'
+updl
+```
+
+Every option has a matching `PROTECT_*` environment variable. Precedence is: an explicit
+flag, then the environment variable, then what was remembered, then the built-in default.
+
+Where state is kept — override the first two with `UPDL_CONFIG` and `PROTECT_SESSION_STORE`:
+
+| What | Windows | Linux / macOS |
+| --- | --- | --- |
+| Remembered settings | `%LOCALAPPDATA%\updl\config.json` | `~/.config/updl/config.json` |
+| Session token | `%LOCALAPPDATA%\protect-archiver\sessions.json` | `~/.local/state/protect-archiver/sessions.json` |
+| Archive index | `DEST\.protect-archive\manifest.db` | `DEST/.protect-archive/manifest.db` |
 
 ## Commands
 
+`updl` on its own runs `sync`. Sub-commands can always be named explicitly:
+
 | Command | What it does |
 | --- | --- |
-| `updl sync DEST` | Incremental mirror. Sweeps each camera's retention window and fetches only what is missing or damaged. |
-| `updl verify DEST` | Audits an archive **offline** — never contacts the NVR, so it is safe to run against a backup copy. |
+| `updl sync [DEST]` | Incremental mirror. Sweeps each camera's retention window and fetches only what is missing or damaged. |
+| `updl verify [DEST]` | Audits an archive **offline** — never contacts the NVR, so it is safe to run against a backup copy. |
 | `updl download DEST` | One-off download of an explicit `--start`/`--end` range. |
 | `updl events DEST` | Motion and smart-detection event clips only. |
 

@@ -4,6 +4,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Versions 2.x and earlier are the history of the upstream project this forks,
+[danielfernau/unifi-protect-video-downloader](https://github.com/danielfernau/unifi-protect-video-downloader),
+and are preserved here unchanged.
+
+## [3.0.0] - 2026-09-09
+
+First release as `updl`. The theme is making the archive re-runnable and trustworthy: a
+run started weeks later should fetch only what is genuinely missing, and you should be
+able to prove that what is already on disk is intact.
+
+### Added
+- **Archive manifest.** A SQLite index at `DEST/.protect-archive/manifest.db` records
+  every archived hour with its path, size and SHA-256. Re-running downloads only what is
+  missing or damaged; a second run over an unchanged archive makes no requests at all.
+- **Hours the NVR has no footage for are remembered** as such, so real recording gaps
+  settle once instead of being requested again on every future run.
+- **Failed hours are remembered too**, so a later run retries exactly the gaps rather
+  than skipping past them permanently as the statefile cursor did.
+- **`verify` command.** Audits an archive entirely offline — it never contacts the NVR,
+  so it is safe to run against a backup copy. `--repair` queues damaged segments to be
+  re-fetched; `--rehash`, `--fix-timestamps` and `--clean-partials` handle the rest.
+- **Four verification levels** (`none`, `quick`, `hash`, `deep`) on both `sync --verify`
+  and `verify --level`, from a size check through SHA-256 to an ffprobe decode.
+- **`verify --require-audio`.** UniFi Protect omits the audio track entirely for an
+  account lacking `readmedia` on a camera: the export still returns 200 with intact
+  video, so nothing fails and an archive can accumulate silently for weeks. This reports
+  such segments, and with `--repair` re-fetches them.
+- **`sync --reconcile`.** Rebuilds manifest rows from footage already on disk, so a lost
+  manifest does not mean re-downloading terabytes.
+- **Multi-factor login.** Handles the Ubiquiti SSO two-step exchange and caches the
+  session token per user, so a code is needed occasionally rather than on every run.
+  `--mfa-code` supplies one non-interactively; with no terminal attached it fails with an
+  explanation instead of hanging.
+- **Remembered settings.** A successful run stores the console address, account and
+  destination, so later runs need no arguments at all — plain `updl` syncs. **The
+  password is never written to disk**; it is needed only when the cached token expires.
+- **Short flags** `-a/--address`, `-u/--username`, `-p/--password`, `-d/--dest` and
+  `-v/--verify`, and the destination may now be an option rather than only positional.
+- `--max-retries`, plus `--skip-existing-files`, `--wait-between-downloads` and
+  `--download-request-timeout` on `sync`, which previously accepted none of them.
+
+### Changed
+- Published to PyPI as **`updl`**, with `updl` as the command and `protect-archiver`
+  retained as an alias. The import package remains `protect_archiver` so fixes can still
+  be merged from upstream.
+- The manifest, not `sync.state`, decides what to download. The statefile is still
+  written for compatibility. `--ignore-state` keeps its documented meaning of
+  "re-download everything".
+- Downloads are written to a `.part` file and renamed on success, so an interrupted run
+  cannot leave a truncated MP4 that later runs mistake for a complete one. Stale partials
+  are swept at startup.
+- Archived files are stamped with the time the footage was recorded rather than the time
+  it was downloaded.
+- Type stubs (`types-python-dateutil`, `types-requests`) and `pip` are no longer runtime
+  dependencies. The wheel now requires only `click`, `python-dateutil` and `requests`.
+
+### Fixed
+- **HTTP errors were never retried.** A non-200 fell through to a bare `return`, so only
+  transport exceptions ever reached the retry loop and a transient 500 from the export
+  endpoint became a permanent gap. Retries now back off on 5xx/429/408, do not repeat
+  other 4xx, and refresh an expired session on 401 without spending an attempt.
+- **"No footage in this range" is an HTTP 404 carrying `{"error": 502}`** and was being
+  treated as a failure, so every hour a camera happened to be offline would have been
+  re-requested forever. It is now recorded as an empty hour.
+- `sync` never passed `--skip-existing-files` through to the downloader.
+- `recording_start` was read as naive UTC while the rest of the code uses naive local
+  time, shifting every camera's first sync by the local UTC offset. It also relied on
+  `datetime.utcfromtimestamp`, which Python 3.12 removed.
+- A camera reporting no recordings would have swept from year 1, expanding into millions
+  of hourly requests.
+- `format_bytes` used integer division and printed 1536 bytes as "1.0 kb".
+
+### Security
+- Session tokens are stored per user with owner-only permissions and outside the archive
+  directory — an archive is routinely copied to external media, and a token is a
+  credential.
+
 ## [Unreleased]
 ### Added
 - TBD

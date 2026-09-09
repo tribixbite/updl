@@ -2,11 +2,12 @@ import os
 
 from collections import Counter
 from datetime import datetime
-from os import path
+from typing import Optional
 
 import click
 
 from protect_archiver.cli.base import cli
+from protect_archiver.cli.resolve import resolve_destination
 from protect_archiver.config import Config
 from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
@@ -74,7 +75,22 @@ def _apply_recorded_time(record: SegmentRecord, absolute_path: str) -> int:
         "contacts the Protect system - so it is safe to run against a backup copy."
     ),
 )
-@click.argument("dest", type=click.Path(exists=True, writable=True, resolve_path=True))
+@click.argument(
+    "dest_argument",
+    metavar="[DEST]",
+    required=False,
+    type=click.Path(exists=True, writable=True, resolve_path=True),
+)
+@click.option(
+    "-d",
+    "--dest",
+    "dest_option",
+    required=False,
+    type=click.Path(exists=True, writable=True, resolve_path=True),
+    help="Archive to audit. Defaults to the destination remembered from the last sync.",
+    envvar="PROTECT_DEST",
+    show_envvar=True,
+)
 @click.option(
     "--level",
     "verify_level",
@@ -140,7 +156,8 @@ def _apply_recorded_time(record: SegmentRecord, absolute_path: str) -> int:
     help="Also delete leftover '.part' files from interrupted runs.",
 )
 def verify(
-    dest: str,
+    dest_argument: Optional[str],
+    dest_option: Optional[str],
     verify_level: str,
     repair: bool,
     rehash: bool,
@@ -148,7 +165,11 @@ def verify(
     fix_timestamps: bool,
     clean_partials: bool,
 ) -> None:
-    dest = path.abspath(dest)
+    dest = resolve_destination(
+        dest_argument,
+        dest_option,
+        "updl verify -d /srv/protect",
+    )
 
     if clean_partials:
         cleanup_stale_part_files(dest)

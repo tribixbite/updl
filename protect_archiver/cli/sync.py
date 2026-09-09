@@ -3,7 +3,9 @@ from typing import Optional
 
 import click
 
+from protect_archiver import settings
 from protect_archiver.cli.base import cli
+from protect_archiver.cli.resolve import resolve_destination
 from protect_archiver.client import ProtectClient
 from protect_archiver.config import Config
 from protect_archiver.manifest import ArchiveManifest
@@ -14,8 +16,27 @@ from protect_archiver.verify import VERIFY_LEVELS
 
 
 @cli.command("sync", help="Synchronize your UniFi Protect footage to a local destination")
-@click.argument("dest", type=click.Path(exists=True, writable=True, resolve_path=True))
+@click.argument(
+    "dest_argument",
+    metavar="[DEST]",
+    required=False,
+    type=click.Path(exists=True, writable=True, resolve_path=True),
+)
 @click.option(
+    "-d",
+    "--dest",
+    "dest_option",
+    required=False,
+    type=click.Path(exists=True, writable=True, resolve_path=True),
+    help=(
+        "Archive destination. May also be given as a positional argument. Remembered "
+        "between runs, so later runs can omit it."
+    ),
+    envvar="PROTECT_DEST",
+    show_envvar=True,
+)
+@click.option(
+    "-a",
     "--address",
     default=Config.ADDRESS,
     show_default=True,
@@ -43,6 +64,7 @@ from protect_archiver.verify import VERIFY_LEVELS
     show_envvar=True,
 )
 @click.option(
+    "-u",
     "--username",
     required=True,
     help="Username of user with local access",
@@ -51,6 +73,7 @@ from protect_archiver.verify import VERIFY_LEVELS
     show_envvar=True,
 )
 @click.option(
+    "-p",
     "--password",
     required=True,
     help="Password of user with local access",
@@ -161,6 +184,7 @@ from protect_archiver.verify import VERIFY_LEVELS
     show_envvar=True,
 )
 @click.option(
+    "-v",
     "--verify",
     "verify_level",
     type=click.Choice(VERIFY_LEVELS),
@@ -205,7 +229,8 @@ from protect_archiver.verify import VERIFY_LEVELS
     show_envvar=True,
 )
 def sync(
-    dest: str,
+    dest_argument: Optional[str],
+    dest_option: Optional[str],
     address: str,
     port: int,
     not_unifi_os: bool,
@@ -226,8 +251,7 @@ def sync(
     verify_level: str,
     reconcile: bool,
 ) -> None:
-    # normalize path to destination directory and check if it exists
-    dest = path.abspath(dest)
+    dest = resolve_destination(dest_argument, dest_option, "updl -d /srv/protect")
     if not path.isdir(dest):
         click.echo(f"Video file destination directory '{dest} is invalid or does not exist!")
         exit(1)
@@ -274,3 +298,22 @@ def sync(
     process.run(camera_list, ignore_state=ignore_state, verify_level=verify_level)
 
     print_download_stats(client)
+
+    # Remember what identifies this job so a later run needs no arguments. Credentials
+    # are never included; see protect_archiver.settings.
+    settings.save(
+        {
+            "address": address,
+            "port": port,
+            "not_unifi_os": not_unifi_os,
+            "username": username,
+            "dest": dest,
+            "cameras": cameras,
+            "verify_level": verify_level,
+            "use_utc_filenames": use_utc_filenames,
+            "download_wait": download_wait,
+            "download_timeout": download_timeout,
+            "max_retries": max_retries,
+            "statefile": statefile,
+        }
+    )
