@@ -1,5 +1,10 @@
 # updl
 
+[![CI](https://github.com/tribixbite/updl/actions/workflows/pythonpackage.yml/badge.svg)](https://github.com/tribixbite/updl/actions/workflows/pythonpackage.yml)
+[![PyPI](https://img.shields.io/pypi/v/updl?color=blue)](https://pypi.org/project/updl/)
+[![Python](https://img.shields.io/pypi/pyversions/updl)](https://pypi.org/project/updl/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **Resumable, verifiable archiver for UniFi Protect footage.**
 
 Back up a UniFi Protect system to local storage in a way you can re-run at any time: it
