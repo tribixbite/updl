@@ -7,7 +7,7 @@ downloads only what is genuinely missing, remembers the hours the NVR had no foo
 retries the ones that failed, and can prove that what is already on disk is still intact.
 
 ```console
-$ updl sync D:\Unifi
+$ updl sync /srv/protect
 Archive currently holds 367 segment(s) (122 empty, 245 ok)
 0 files downloaded (0.0 b), 367 already archived, 0 files skipped, 0 files failed
 ```
