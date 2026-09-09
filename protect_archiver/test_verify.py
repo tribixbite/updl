@@ -19,7 +19,6 @@ from protect_archiver.verify import REASON_SIZE_MISMATCH
 from protect_archiver.verify import verify_file
 from protect_archiver.verify import verify_record
 
-
 CONTENT = b"a" * 1024
 DIGEST = hashlib.sha256(CONTENT).hexdigest()
 

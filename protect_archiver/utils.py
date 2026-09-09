@@ -10,7 +10,6 @@ from typing import Tuple
 
 from protect_archiver.dataclasses import Camera
 
-
 # Suffix for a download still in flight. The bytes are written here and renamed into
 # place only on success, so an interrupted run never leaves a truncated file that later
 # runs would mistake for a complete one.

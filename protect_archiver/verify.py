@@ -37,7 +37,6 @@ from protect_archiver.manifest import STATUS_EMPTY
 from protect_archiver.manifest import STATUS_FAILED
 from protect_archiver.manifest import SegmentRecord
 
-
 LEVEL_NONE = "none"
 LEVEL_QUICK = "quick"
 LEVEL_HASH = "hash"

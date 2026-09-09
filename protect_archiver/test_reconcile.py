@@ -11,7 +11,6 @@ from protect_archiver.reconcile import parse_camera_label
 from protect_archiver.reconcile import parse_segment_filename
 from protect_archiver.utils import make_camera_name_fs_safe
 
-
 CAMERA = Camera(id="abcd1234wxyz", name="Front Door", recording_start=datetime(2026, 1, 1))
 
 

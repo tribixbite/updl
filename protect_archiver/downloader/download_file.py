@@ -19,7 +19,6 @@ from protect_archiver.utils import PART_SUFFIX
 from protect_archiver.utils import format_bytes
 from protect_archiver.utils import print_download_stats
 
-
 # A response shorter than this is the Protect API's way of saying "there is no footage
 # in that window" rather than a real clip.
 MINIMUM_CLIP_BYTES = 300

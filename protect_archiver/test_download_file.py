@@ -15,7 +15,6 @@ from protect_archiver.manifest import STATUS_FAILED
 from protect_archiver.manifest import STATUS_OK
 from protect_archiver.utils import PART_SUFFIX
 
-
 EXPORT_URL = "https://unifi:443/proxy/protect/api/video/export?camera=cam1&start=0&end=1"
 QUERY = "/video/export?camera=cam1&start=0&end=1"
 CLIP = b"x" * 4096

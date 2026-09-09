@@ -36,7 +36,6 @@ from protect_archiver.manifest import STATUS_OK
 from protect_archiver.manifest import ArchiveManifest
 from protect_archiver.utils import make_camera_name_fs_safe
 
-
 # Mirrors the name built in download_footage: '<camera> (<id suffix>) - <date> - <time>[tz].mp4'
 SEGMENT_FILENAME_PATTERN = re.compile(
     r"^(?P<camera>.+?) - "

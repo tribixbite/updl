@@ -21,7 +21,6 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
-
 # Treat a token as expired this many seconds before its stated expiry, so a long
 # download started just under the wire does not fail mid-transfer.
 EXPIRY_MARGIN_SECONDS = 300

@@ -11,7 +11,6 @@ import requests
 from protect_archiver.errors import ProtectError
 from protect_archiver.session_store import SessionStore
 
-
 # UniFi OS answers a credentials-only login with this non-standard status when the
 # account is backed by Ubiquiti SSO and a second factor is enrolled.
 MFA_REQUIRED_STATUS = 499

@@ -35,7 +35,6 @@ from typing import Set
 from typing import Tuple
 from typing import Type
 
-
 # Subdirectory of the archive holding archiver bookkeeping. Kept dot-prefixed and in one
 # place so a user browsing the archive sees footage, not machinery.
 METADATA_DIRNAME = ".protect-archive"
@@ -128,8 +127,7 @@ class ArchiveManifest:
 
     def _create_schema(self) -> None:
         with self._connection:
-            self._connection.execute(
-                """
+            self._connection.execute("""
                 CREATE TABLE IF NOT EXISTS segments (
                     camera_id     TEXT    NOT NULL,
                     camera_name   TEXT    NOT NULL,
@@ -143,8 +141,7 @@ class ArchiveManifest:
                     verified_at   TEXT,
                     PRIMARY KEY (camera_id, start_ms)
                 )
-                """
-            )
+                """)
             self._connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_segments_status ON segments (status)"
             )

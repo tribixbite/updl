@@ -20,7 +20,6 @@ from protect_archiver.client.unifi_os import UniFiOSClient
 from protect_archiver.errors import ProtectError
 from protect_archiver.session_store import SessionStore
 
-
 AUTH_URL = "https://protect.invalid:443/api/auth/login"
 
 

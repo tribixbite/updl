@@ -22,7 +22,6 @@ from protect_archiver.verify import LEVEL_HASH
 from protect_archiver.verify import LEVEL_QUICK
 from protect_archiver.verify import sha256_file
 
-
 CLIP = b"v" * 4096
 
 
