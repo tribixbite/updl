@@ -8,6 +8,20 @@ Versions 2.x and earlier are the history of the upstream project this forks,
 [danielfernau/unifi-protect-video-downloader](https://github.com/danielfernau/unifi-protect-video-downloader),
 and are preserved here unchanged.
 
+## [3.0.2] - 2026-09-11
+
+### Changed
+- `updl --help` and `updl -h` now directly display all primary sync options (`-a/--address`,
+  `-u/--username`, `-p/--password`, `-d/--dest`, `--cameras`, etc.) and their environment
+  variables.
+- Bare command and missing destination errors now provide actionable guidance on specifying
+  the Protect console address and destination.
+
+### Fixed
+- Authentication requests to UniFi OS now pass both `TOKEN` and `UOS_TOKEN` cookies as well
+  as `Authorization: Bearer <token>` for reliable compatibility across UniFi OS firmware versions.
+- Added diagnostic guidance when camera discovery fails against the default `'unifi'` hostname.
+
 ## [3.0.1] - 2026-09-11
 
 ### Changed

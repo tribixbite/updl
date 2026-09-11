@@ -1,6 +1,6 @@
 [project]
 name = "updl"
-version = "3.0.1"
+version = "3.0.2"
 description = "Resumable, verifiable archiver for UniFi Protect footage"
 readme = "README.md"
 license = "MIT"
