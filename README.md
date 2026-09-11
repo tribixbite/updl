@@ -12,7 +12,7 @@ downloads only what is genuinely missing, remembers the hours the NVR had no foo
 retries the ones that failed, and can prove that what is already on disk is still intact.
 
 ```console
-$ updl sync /srv/protect
+$ updl /srv/protect
 Archive currently holds 367 segment(s) (122 empty, 245 ok)
 0 files downloaded (0.0 b), 367 already archived, 0 files skipped, 0 files failed
 ```
@@ -74,11 +74,14 @@ Where state is kept — override the first two with `UPDL_CONFIG` and `PROTECT_S
 
 ## Commands
 
-`updl` on its own runs `sync`. Sub-commands can always be named explicitly:
+Syncing is the primary command: use `updl [DEST]`, or plain `updl` after the first
+successful run remembers the destination. The explicit `sync` name remains available for
+existing scripts:
 
 | Command | What it does |
 | --- | --- |
-| `updl sync [DEST]` | Incremental mirror. Sweeps each camera's retention window and fetches only what is missing or damaged. |
+| `updl [DEST]` | Incremental mirror. Sweeps each camera's retention window and fetches only what is missing or damaged. |
+| `updl sync [DEST]` | Backwards-compatible explicit form of the primary command. |
 | `updl verify [DEST]` | Audits an archive **offline** — never contacts the NVR, so it is safe to run against a backup copy. |
 | `updl download DEST` | One-off download of an explicit `--start`/`--end` range. |
 | `updl events DEST` | Motion and smart-detection event clips only. |
@@ -157,9 +160,18 @@ Where the second factor is delivered by email there is no shared secret, so no r
 obtain a *new* token unattended — but an existing token is long-lived, so a scheduled run
 works until it expires.
 
+If camera discovery reports a successful HTTP request but then says the response was empty,
+HTML, invalid JSON, or unexpected metadata, the console did not return a usable camera list.
+One possible cause of HTML is a login page returned for a cached session the console no
+longer accepts; the token's displayed expiry does not prove that it remains valid server-side.
+`updl` refreshes once for a 401, a same-console login redirect, or an HTML response, then
+fails clearly. Other invalid responses fail directly. If the problem persists, check that
+the configured address and port lead to the UniFi Protect console and that the account can
+access Protect.
+
 ## Recovering an archive whose manifest was lost
 
-`updl sync DEST --reconcile` reads the footage already on disk and rebuilds the manifest
+`updl DEST --reconcile` reads the footage already on disk and rebuilds the manifest
 rows from the filenames, rather than downloading terabytes again. Adopted rows carry no
 hash until `updl verify DEST --rehash` records one.
 

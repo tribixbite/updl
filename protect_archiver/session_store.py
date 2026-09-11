@@ -14,12 +14,15 @@ is routinely copied to external media or a NAS, and a session token is a credent
 import base64
 import json
 import logging
+import math
 import os
 import time
 
 from typing import Any
 from typing import Dict
 from typing import Optional
+from typing import TypeGuard
+from typing import Union
 
 # Treat a token as expired this many seconds before its stated expiry, so a long
 # download started just under the wire does not fail mid-transfer.
@@ -29,6 +32,16 @@ EXPIRY_MARGIN_SECONDS = 300
 # typically good for far longer, but assuming a short life only costs one extra
 # validation request, whereas assuming a long one costs a failed run.
 DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
+
+
+def _is_finite_number(value: Any) -> TypeGuard[Union[int, float]]:
+    """Return whether value is a usable finite int or float, excluding booleans."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _default_store_path() -> str:
@@ -67,8 +80,13 @@ def decode_jwt_expiry(token: str) -> Optional[int]:
     except Exception:
         return None
 
+    if not isinstance(payload, dict):
+        return None
+
     expiry = payload.get("exp")
-    return int(expiry) if isinstance(expiry, (int, float)) else None
+    if _is_finite_number(expiry):
+        return int(expiry)
+    return None
 
 
 class SessionStore:
@@ -120,7 +138,7 @@ class SessionStore:
 
         token = entry.get("token")
         expires_at = entry.get("expires_at")
-        if not isinstance(token, str) or not isinstance(expires_at, (int, float)):
+        if not isinstance(token, str) or not _is_finite_number(expires_at):
             return None
 
         remaining = expires_at - time.time()

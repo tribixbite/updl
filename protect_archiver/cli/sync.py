@@ -1,4 +1,5 @@
 from os import path
+from typing import List
 from typing import Optional
 
 import click
@@ -8,11 +9,35 @@ from protect_archiver.cli.base import cli
 from protect_archiver.cli.resolve import resolve_destination
 from protect_archiver.client import ProtectClient
 from protect_archiver.config import Config
+from protect_archiver.dataclasses import Camera
+from protect_archiver.errors import ProtectError
 from protect_archiver.manifest import ArchiveManifest
 from protect_archiver.reconcile import find_orphans
 from protect_archiver.sync import ProtectSync
 from protect_archiver.utils import print_download_stats
 from protect_archiver.verify import VERIFY_LEVELS
+
+
+def select_cameras(camera_list: List[Camera], selection: str) -> List[Camera]:
+    """Return the requested cameras, rejecting selections that cannot be fulfilled."""
+    if selection == "all":
+        return camera_list
+
+    camera_ids = {camera_id.strip() for camera_id in selection.split(",") if camera_id.strip()}
+    if not camera_ids:
+        click.echo("No camera IDs were supplied with --cameras", err=True)
+        raise ProtectError(1)
+
+    available_ids = {camera.id for camera in camera_list}
+    missing_ids = sorted(camera_ids - available_ids)
+    if missing_ids:
+        click.echo(
+            "Unknown camera ID(s): " + ", ".join(missing_ids),
+            err=True,
+        )
+        raise ProtectError(1)
+
+    return [camera for camera in camera_list if camera.id in camera_ids]
 
 
 @cli.command("sync", help="Synchronize your UniFi Protect footage to a local destination")
@@ -279,9 +304,7 @@ def sync(
     print("Getting camera list")
     camera_list = client.get_camera_list()
 
-    if cameras != "all":
-        camera_ids = set(cameras.split(","))
-        camera_list = [c for c in camera_list if c.id in camera_ids]
+    camera_list = select_cameras(camera_list, cameras)
 
     if reconcile:
         # Adoption needs the live camera list to turn the id suffix in each file name

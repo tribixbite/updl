@@ -5,47 +5,44 @@ from datetime import datetime
 from typing import Any
 from typing import List
 
-import requests
-
 from protect_archiver.dataclasses import Camera
+from protect_archiver.downloader.camera_response import fetch_camera_data
+from protect_archiver.errors import ProtectError
 
 
 def get_camera_list(session: Any) -> List[Camera]:
-    cameras_uri = f"{session.authority}{session.base_path}/cameras"
-
-    response = (
-        requests.get(
-            cameras_uri,
-            cookies={"TOKEN": session.get_api_token()},
-            verify=session.verify_ssl,
-        )
-        if session.__class__.__name__ == "UniFiOSClient"
-        else requests.get(
-            cameras_uri,
-            headers={"Authorization": f"Bearer {session.get_api_token()}"},
-            verify=session.verify_ssl,
-        )
-    )
-
-    if response.status_code != 200:
-        print(f"Error while loading camera list: {response.status_code}")
-        return []
-
-    logging.info(f"Successfully retrieved data from {cameras_uri}")
-    cameras = response.json()
+    cameras = fetch_camera_data(session)
 
     camera_list = []
     for camera in cameras:
+        try:
+            valid = isinstance(camera["id"], str) and isinstance(camera["name"], str)
+            recording_start = camera["stats"]["video"]["recordingStart"]
+            valid = valid and (
+                recording_start is None
+                or (
+                    isinstance(recording_start, (int, float))
+                    and not isinstance(recording_start, bool)
+                )
+            )
+            if not valid:
+                raise ValueError
+            start = (
+                datetime.fromtimestamp(recording_start / 1000) if recording_start else datetime.min
+            )
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            logging.error(
+                "Could not load camera list: malformed camera metadata returned by Protect"
+            )
+            raise ProtectError(3) from None
         camera_data = Camera(id=camera["id"], name=camera["name"], recording_start=datetime.min)
-        if camera["stats"]["video"]["recordingStart"]:
+        if recording_start:
             # Naive *local* time, matching the rest of the codebase: interval boundaries
             # are later turned back into epoch milliseconds with datetime.timestamp(),
             # which interprets a naive value as local. Using utcfromtimestamp here made
             # the first sync of each camera start a whole UTC offset away from the real
             # recording start. (It is also removed in Python 3.12.)
-            camera_data.recording_start = datetime.fromtimestamp(
-                camera["stats"]["video"]["recordingStart"] / 1000
-            )
+            camera_data.recording_start = start
         camera_list.append(camera_data)
 
     logging.info(

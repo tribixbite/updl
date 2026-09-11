@@ -8,6 +8,24 @@ Versions 2.x and earlier are the history of the upstream project this forks,
 [danielfernau/unifi-protect-video-downloader](https://github.com/danielfernau/unifi-protect-video-downloader),
 and are preserved here unchanged.
 
+## [3.0.1] - 2026-09-11
+
+### Changed
+- Help and documentation present `updl DEST` as the primary command. Explicit
+  `updl sync DEST` remains compatible with existing scripts.
+
+### Fixed
+- Camera discovery validates JSON and camera metadata before reporting success, with
+  clear errors for empty, malformed, or unexpected responses.
+- Camera requests no longer follow redirects to console pages. Authentication failures,
+  same-console login redirects, and HTML responses trigger at most one session refresh.
+- Camera requests have a timeout, and expected Protect failures exit with their status
+  code instead of an internal traceback.
+- Malformed cached-session expiry values and JWT payloads no longer crash authentication.
+- Unknown or empty camera selections fail clearly instead of saving a successful job
+  that downloads nothing. Comma-separated camera IDs may include surrounding whitespace.
+- `-h` now works as a help alias.
+
 ## [3.0.0] - 2026-09-09
 
 First release as `updl`. The theme is making the archive re-runnable and trustworthy: a
@@ -80,26 +98,6 @@ able to prove that what is already on disk is intact.
 - Session tokens are stored per user with owner-only permissions and outside the archive
   directory — an archive is routinely copied to external media, and a token is a
   credential.
-
-## [Unreleased]
-### Added
-- TBD
-
-### Changed
-- TBD
-
-### Deprecated
-- TBD
-
-### Removed
-- TBD
-
-### Fixed
-- TBD
-
-### Security
-- TBD
-
 
 ## [v2.1.3]
 ### Added

@@ -3,7 +3,26 @@ import click
 from protect_archiver import settings
 
 
-@click.group(invoke_without_command=True)
+class PrimaryCommandGroup(click.Group):
+    """Present the default archive operation in the top-level usage line."""
+
+    def format_usage(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        formatter.write_usage(
+            ctx.command_path,
+            "[OPTIONS] [DEST]\n       COMMAND [ARGS]...",
+        )
+
+
+@click.group(
+    cls=PrimaryCommandGroup,
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help=(
+        "Archive UniFi Protect footage. DEST starts the primary archive sync. "
+        "Run 'updl DEST --help' to see its options; the commands below provide "
+        "specialized and backwards-compatible forms."
+    ),
+)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     # Values remembered by a previous run become defaults for the options that were not

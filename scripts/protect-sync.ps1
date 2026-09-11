@@ -3,7 +3,7 @@
     Run a UniFi Protect archive sync into a local destination.
 
 .DESCRIPTION
-    Wraps `updl sync` with the things a repeatable backup needs and the CLI
+    Wraps `updl DEST` with the things a repeatable backup needs and the CLI
     does not provide on its own: a single-instance lock, a timestamped log, and a check
     that the destination volume is actually mounted before anything is written to it.
 
@@ -114,7 +114,7 @@ try {
     Write-Log "Log:         $script:LogFile"
 
     $archiverArguments = @(
-        'sync', $Destination,
+        $Destination,
         '--address', $Address,
         '--verify', $Verify,
         '--wait-between-downloads', $WaitBetweenDownloads,

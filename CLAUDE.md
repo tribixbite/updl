@@ -31,7 +31,7 @@ size, SHA-256 and a status of `ok` / `empty` / `failed`.
 
 The end of a segment is stored but deliberately **not** part of its identity: a sync always
 requests hour-aligned ranges, and a two-field key is what lets an archive whose manifest was
-lost be rebuilt from the filenames on disk (`sync --reconcile`).
+lost be rebuilt from the filenames on disk (`updl DEST --reconcile`).
 
 SQLite rather than JSON because a four-camera year is ~35k rows per camera and rewriting a
 JSON document once per segment is quadratic.
@@ -72,6 +72,14 @@ nothing is missing. The other streams *are* exportable (`&channel=2`, `&type=tim
 they are simply not requested. An unrecognised value such as `&channel=timelapse` makes the
 export hang rather than error, so validate before passing anything through.
 
+**HTTP 200 does not guarantee camera metadata.** The response must be valid JSON with the
+expected shape; reject an HTML, empty or otherwise unexpected body before it reaches the
+downloader. Do not follow redirects automatically for API requests. Refresh the session once
+for a 401, a same-origin login redirect, or an HTML 200, then fail with a clear diagnostic.
+Other empty or non-JSON responses fail directly. One possible cause of an HTML response is a
+console login page returned for a cached session the console no longer accepts: the token's
+recorded expiry is not proof that it remains valid server-side.
+
 ## Authentication
 
 Consoles backed by Ubiquiti SSO answer a credentials-only login with HTTP **499** and
@@ -108,6 +116,10 @@ is the private API, which is why behaviour has to be established by probing.
 Published as **`updl`**; CLI command `updl`, with `protect-archiver` kept as an alias. **The
 import package stays `protect_archiver`** (the `pillow`/`PIL` pattern) so fixes can still be
 merged from upstream rather than hand-ported — do not rename it without accepting that cost.
+
+Sync is the primary CLI operation: `updl DEST` and, after settings are remembered, plain
+`updl` run it directly. Keep `updl sync [DEST]` as a backwards-compatible explicit form;
+do not make `sync` a required word in user-facing examples.
 
 Release: bump `version` in `pyproject.toml`, tag `vX.Y.Z`, publish a GitHub Release.
 `.github/workflows/publish.yml` runs tests/mypy/flake8, refuses a tag that disagrees with

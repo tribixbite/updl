@@ -29,8 +29,8 @@ $ source $HOME/.poetry/env
 
 ### Clone the source repository
 ```bash
-$ git clone https://github.com/danielfernau/unifi-protect-video-downloader
-$ cd unifi-protect-video-downloader
+$ git clone https://github.com/tribixbite/updl
+$ cd updl
 ```
 
 ### Install pre-commit hooks
@@ -61,8 +61,10 @@ It's recommended to switch to a virtual environment using `poetry shell` before 
 
 ### Run
 ```bash
-$ poetry run protect-archiver [OPTIONS] COMMAND [ARGS]...
+$ poetry run updl [DEST] [OPTIONS]
 ```
+
+Other operations remain available as explicit commands, such as `updl verify DEST`.
 
 ### Lint
 ```bash
@@ -91,19 +93,19 @@ $ poetry build
 ### Install package
 ```bash
 $ cd ./dist
-$ pip3 install protect_archiver*.whl
+$ pip3 install updl-*.whl
 ```
-Replace `protect_archiver*.whl` with a more specific file name if you have multiple versions in the `./dist` directory.
+Replace `updl-*.whl` with a more specific file name if you have multiple versions in the `./dist` directory.
 
 ### Build Docker image
 From within the project root directory run
 ```bash
-$ docker build -t unifitoolbox/protect-archiver .
+$ docker build -t tribixbite/updl .
 ```
 
 ### Run Docker image
 ```bash
-$ docker run --volume /path/on/host/machine:/downloads unifitoolbox/protect-archiver --help
+$ docker run --volume /path/on/host/machine:/downloads tribixbite/updl --help
 ```
 Replace `/path/on/host/machine` with an absolute path to your download directory and `--help` with one of the supported commands and its parameters.  
 Have a look at the project's README.md for additional details.

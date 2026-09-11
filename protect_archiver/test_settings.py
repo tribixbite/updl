@@ -1,10 +1,17 @@
 import json
 import os
+import sys
 
 from typing import Any
 
+import pytest
+
+from click.testing import CliRunner
+
 from protect_archiver import settings
+from protect_archiver.cli import main
 from protect_archiver.cli import resolve_argv
+from protect_archiver.errors import ProtectError
 
 
 def use_config(tmp_path: Any, monkeypatch: Any) -> str:
@@ -114,13 +121,58 @@ def test_config_file_is_owner_only(tmp_path: Any, monkeypatch: Any) -> None:
         assert os.path.isfile(path)
 
 
-def test_bare_invocation_means_sync() -> None:
+def test_sync_is_the_primary_command() -> None:
     commands = {"sync", "verify", "download", "events"}
 
     assert resolve_argv([], commands) == ["sync"]
+    assert resolve_argv([r"C:\unifi"], commands) == ["sync", r"C:\unifi"]
     # Options with no sub-command are a sync too, which is what makes `updl -d X` work.
     assert resolve_argv(["-d", "/srv"], commands) == ["sync", "-d", "/srv"]
-    # An explicit sub-command is left alone...
+    # Explicit commands remain available for backwards compatibility.
+    assert resolve_argv(["sync", "/srv"], commands) == ["sync", "/srv"]
     assert resolve_argv(["verify", "/srv"], commands) == ["verify", "/srv"]
-    # ...and so is top-level help, which must not become `sync --help`.
+    # Top-level help must not become `sync --help`.
     assert resolve_argv(["--help"], commands) == ["--help"]
+
+
+def test_top_level_help_presents_destination_as_primary_usage() -> None:
+    from protect_archiver.cli.base import cli
+
+    result = CliRunner().invoke(cli, ["--help"], prog_name="updl")
+
+    assert result.exit_code == 0
+    assert "Usage: updl [OPTIONS] [DEST]" in result.output
+    assert "updl DEST --help" in " ".join(result.output.split())
+
+
+def test_entrypoint_routes_a_destination_to_sync(tmp_path: Any, monkeypatch: Any) -> None:
+    from protect_archiver.cli.base import cli
+
+    received = {}
+
+    def record_sync(**kwargs: Any) -> None:
+        received.update(kwargs)
+
+    monkeypatch.setattr(cli.commands["sync"], "callback", record_sync)
+    monkeypatch.setattr(sys, "argv", ["updl", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as caught:
+        main()
+
+    assert caught.value.code == 0
+    assert received["dest_argument"] == str(tmp_path)
+
+
+def test_entrypoint_converts_protect_error_to_exit_code(monkeypatch: Any) -> None:
+    from protect_archiver.cli.base import cli
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise ProtectError(3)
+
+    monkeypatch.setattr(cli, "main", fail)
+    monkeypatch.setattr(sys, "argv", ["updl", r"C:\unifi"])
+
+    with pytest.raises(SystemExit) as caught:
+        main()
+
+    assert caught.value.code == 3

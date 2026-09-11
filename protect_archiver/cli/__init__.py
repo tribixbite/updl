@@ -23,18 +23,25 @@ def main() -> None:
 
     import sys
 
+    from protect_archiver.errors import ProtectError
+
     from .base import cli
 
-    cli.main(args=resolve_argv(sys.argv[1:], set(cli.commands)))
+    try:
+        cli.main(args=resolve_argv(sys.argv[1:], set(cli.commands)))
+    except ProtectError as error:
+        # Command implementations log the useful diagnostic before raising. Converting
+        # the domain error here keeps every command's exit behaviour consistent and
+        # avoids showing users an internal traceback for an expected operational error.
+        raise SystemExit(error.code) from None
 
 
 def resolve_argv(argv: Sequence[str], commands: Set[str]) -> List[str]:
-    """Let `updl` with no sub-command mean `updl sync`.
+    """Make sync the primary command, with ``sync`` retained as an explicit alias.
 
-    A machine that has run once before has its address, account and destination
-    remembered, so the useful default for a bare invocation is to get on with the sync.
-    Anything that already names a sub-command is left alone, and so is the top-level
-    help, which must not turn into `sync --help`.
+    ``updl DEST`` and ``updl [OPTIONS]`` are the normal sync forms. Anything that names
+    another sub-command is left alone, as is top-level help. Keeping the explicit
+    ``sync`` command preserves existing scripts and schedules.
     """
     if not argv:
         return ["sync"]
