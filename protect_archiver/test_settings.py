@@ -148,6 +148,10 @@ def test_top_level_help_presents_destination_as_primary_usage() -> None:
 def test_entrypoint_routes_a_destination_to_sync(tmp_path: Any, monkeypatch: Any) -> None:
     from protect_archiver.cli.base import cli
 
+    use_config(tmp_path, monkeypatch)
+    monkeypatch.setenv("PROTECT_USERNAME", "archiver")
+    monkeypatch.setenv("PROTECT_PASSWORD", "secret")
+
     received = {}
 
     def record_sync(**kwargs: Any) -> None:
