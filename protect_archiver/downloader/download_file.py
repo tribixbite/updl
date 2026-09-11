@@ -77,7 +77,12 @@ def _authenticated_get(client: Any, uri: str, force_token_refresh: bool = False)
         "stream": True,
     }
     if client.session.__class__.__name__ == "UniFiOSClient":
-        return requests.get(uri, cookies={"TOKEN": token}, **common)
+        return requests.get(
+            uri,
+            cookies={"TOKEN": token, "UOS_TOKEN": token},
+            headers={"Authorization": f"Bearer {token}"},
+            **common,
+        )
     return requests.get(uri, headers={"Authorization": f"Bearer {token}"}, **common)
 
 

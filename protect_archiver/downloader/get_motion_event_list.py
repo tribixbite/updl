@@ -30,7 +30,8 @@ def get_motion_event_list(
     response = (
         requests.get(
             motion_events_uri,
-            cookies={"TOKEN": session.get_api_token()},
+            cookies={"TOKEN": session.get_api_token(), "UOS_TOKEN": session.get_api_token()},
+            headers={"Authorization": f"Bearer {session.get_api_token()}"},
             verify=session.verify_ssl,
         )
         if session.__class__.__name__ == "UniFiOSClient"

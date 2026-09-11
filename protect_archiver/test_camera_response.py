@@ -290,3 +290,56 @@ def test_auth_like_response_retries_only_once_and_does_not_log_response_body(
     assert sum(call.request.method == "POST" for call in responses.calls) == 1
     assert "private-login-page" not in caplog.text
     assert "Successfully retrieved" not in caplog.text
+
+
+def test_camera_request_sends_both_token_cookies_and_bearer_header(responses: Any) -> None:
+    responses.add(responses.GET, CAMERAS_URL, json=[camera_json()])
+
+    client = make_client()
+    get_camera_list(client)
+
+    cookie_header = responses.calls[0].request.headers.get("Cookie", "")
+    assert "TOKEN=stale-token" in cookie_header
+    assert "UOS_TOKEN=stale-token" in cookie_header
+    assert responses.calls[0].request.headers.get("Authorization") == "Bearer stale-token"
+
+
+def test_default_unifi_hostname_logs_guidance_on_failure(responses: Any, caplog: Any) -> None:
+    unifi_url = "https://unifi:443/proxy/protect/api/cameras"
+    responses.add(
+        responses.GET,
+        unifi_url,
+        status=200,
+        body="<html>gateway</html>",
+        headers={"Content-Type": "text/html"},
+    )
+    responses.add(
+        responses.POST,
+        "https://unifi:443/api/auth/login",
+        headers={"Set-Cookie": "TOKEN=tok"},
+        json={},
+    )
+    responses.add(
+        responses.GET,
+        unifi_url,
+        status=200,
+        body="<html>gateway</html>",
+        headers={"Content-Type": "text/html"},
+    )
+
+    client = UniFiOSClient(
+        protocol="https",
+        address="unifi",
+        port=443,
+        username="someone",
+        password="secret",
+        verify_ssl=False,
+        use_session_store=False,
+    )
+    client._api_token = "stale"
+
+    with caplog.at_level(logging.INFO), pytest.raises(ProtectError) as error:
+        get_camera_list(client)
+
+    assert_code_three(error)
+    assert "Note: 'unifi' is the default hostname" in caplog.text

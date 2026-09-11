@@ -12,6 +12,14 @@ class PrimaryCommandGroup(click.Group):
             "[OPTIONS] [DEST]\n       COMMAND [ARGS]...",
         )
 
+    def format_options(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        sync_cmd = self.commands.get("sync")
+        if sync_cmd:
+            sync_cmd.format_options(ctx, formatter)
+        else:
+            super().format_options(ctx, formatter)
+        self.format_commands(ctx, formatter)
+
 
 @click.group(
     cls=PrimaryCommandGroup,

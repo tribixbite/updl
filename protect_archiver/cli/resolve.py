@@ -21,7 +21,13 @@ def resolve_destination(
     destination = dest_argument or dest_option
     if not destination:
         raise click.UsageError(
-            f"No archive destination given and none remembered. "
-            f"Pass it as an argument or with -d/--dest, for example: {example}"
+            "No archive destination given and none remembered.\n\n"
+            "To start an archive sync, specify the destination and Protect console address:\n"
+            "  updl -a <protect-ip> -u <username> <destination>\n\n"
+            f"For example:\n"
+            f"  {example}\n\n"
+            "Options can also be set via environment variables (PROTECT_ADDRESS, PROTECT_DEST, etc.).\n"
+            "Once a sync succeeds, settings are remembered so future runs can be started with plain 'updl'.\n"
+            "Run 'updl --help' to see all available options."
         )
     return path.abspath(destination)

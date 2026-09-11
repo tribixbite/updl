@@ -43,7 +43,8 @@ def fetch_camera_data(session: Any) -> List[Dict[str, Any]]:
         try:
             token = session.get_api_token(force=True) if attempt else session.get_api_token()
             if isinstance(session, UniFiOSClient):
-                options["cookies"] = {"TOKEN": token}
+                options["cookies"] = {"TOKEN": token, "UOS_TOKEN": token}
+                options["headers"]["Authorization"] = f"Bearer {token}"
             else:
                 options["headers"]["Authorization"] = f"Bearer {token}"
             response = requests.get(uri, **options)
@@ -77,5 +78,11 @@ def fetch_camera_data(session: Any) -> List[Dict[str, Any]]:
                 uri,
                 detail,
             )
+            if getattr(session, "address", None) == "unifi":
+                logging.error(
+                    "Note: 'unifi' is the default hostname. If your Protect console is at an IP"
+                    " address (e.g. 192.168.1.1), pass it using -a/--address or set the"
+                    " PROTECT_ADDRESS environment variable."
+                )
             raise ProtectError(3)
     raise ProtectError(3)  # pragma: no cover

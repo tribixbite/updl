@@ -143,6 +143,8 @@ def test_top_level_help_presents_destination_as_primary_usage() -> None:
     assert result.exit_code == 0
     assert "Usage: updl [OPTIONS] [DEST]" in result.output
     assert "updl DEST --help" in " ".join(result.output.split())
+    assert "--address" in result.output
+    assert "--username" in result.output
 
 
 def test_entrypoint_routes_a_destination_to_sync(tmp_path: Any, monkeypatch: Any) -> None:
